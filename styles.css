@@ -303,7 +303,7 @@ main { flex: 1; }
 /* Freezer stats */
 .freezer-stats {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(2, 1fr);
   gap: .5rem;
 }
 
@@ -315,9 +315,10 @@ main { flex: 1; }
   display: flex;
   flex-direction: column;
   gap: .1rem;
+  min-width: 0;
 }
-.stat-box > span   { font-size: .65rem; color: var(--text-3); text-transform: uppercase; letter-spacing: .06em; }
-.stat-box > strong { font-size: .82rem; font-weight: 700; font-family: var(--font-mono); }
+.stat-box > span   { font-size: .65rem; color: var(--text-3); text-transform: uppercase; letter-spacing: .06em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.stat-box > strong { font-size: .85rem; font-weight: 700; font-family: var(--font-mono); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
 /* Mini clients */
 .mini-list {
