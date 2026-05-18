@@ -29,6 +29,8 @@ let firebaseStore = null;
 let unsubscribeFirebase = null;
 
 const elements = {
+  tabButtons: document.querySelectorAll("[data-page-target]"),
+  pageViews: document.querySelectorAll("[data-page]"),
   metricRevenue: document.querySelector("#metric-revenue"),
   metricActiveContracts: document.querySelector("#metric-active-contracts"),
   metricCost: document.querySelector("#metric-cost"),
@@ -45,6 +47,10 @@ const elements = {
   metricSmallClients: document.querySelector("#metric-small-clients"),
   metricSmallSpace: document.querySelector("#metric-small-space"),
   opportunityList: document.querySelector("#opportunity-list"),
+  moveModal: document.querySelector("#move-modal"),
+  moveClose: document.querySelector("#move-close"),
+  moveSummary: document.querySelector("#move-summary"),
+  moveTargets: document.querySelector("#move-targets"),
   roomForm: document.querySelector("#room-form"),
   freezerForm: document.querySelector("#freezer-form"),
   contractForm: document.querySelector("#contract-form"),
@@ -52,9 +58,6 @@ const elements = {
   freezerList: document.querySelector("#freezer-list"),
   financeTable: document.querySelector("#finance-table"),
   contractList: document.querySelector("#contract-list"),
-  loadDemo: document.querySelector("#load-demo"),
-  exportData: document.querySelector("#export-data"),
-  importData: document.querySelector("#import-data"),
   emptyTemplate: document.querySelector("#empty-template")
 };
 
@@ -76,9 +79,19 @@ function registerEvents() {
     renderLists();
   });
   elements.contractForm.elements.namedItem("planKey").addEventListener("change", applyPlanDefaults);
-  elements.loadDemo.addEventListener("click", loadDemoData);
-  elements.exportData.addEventListener("click", exportData);
-  elements.importData.addEventListener("change", importData);
+  elements.moveClose.addEventListener("click", closeMoveModal);
+  elements.moveModal.addEventListener("click", (event) => {
+    if (event.target === elements.moveModal) {
+      closeMoveModal();
+    }
+  });
+  elements.tabButtons.forEach((button) => {
+    button.addEventListener("click", () => showPage(button.dataset.pageTarget));
+  });
+  document.addEventListener("dragstart", handleDragStart);
+  document.addEventListener("dragover", handleDragOver);
+  document.addEventListener("dragleave", handleDragLeave);
+  document.addEventListener("drop", handleDrop);
 
   document.addEventListener("click", (event) => {
     const button = event.target.closest("[data-action]");
@@ -90,6 +103,8 @@ function registerEvents() {
     if (action === "edit-room") editRoom(id);
     if (action === "edit-freezer") editFreezer(id);
     if (action === "edit-contract") editContract(id);
+    if (action === "open-move") openMoveModal(id);
+    if (action === "move-contract") moveContract(id, button.dataset.freezerId);
     if (action === "delete-room") deleteRoom(id);
     if (action === "delete-freezer") deleteFreezer(id);
     if (action === "delete-contract") deleteContract(id);
@@ -157,7 +172,7 @@ async function handleContractSubmit(event) {
 
   if (freezer && contract.status === "active" && usedWithoutCurrent + contract.occupiedCm > freezer.capacityCm) {
     const available = Math.max(0, freezer.capacityCm - usedWithoutCurrent);
-    window.alert(`Espaco insuficiente neste freezer. Disponivel: ${available} cm.`);
+    window.alert(`Espaço insuficiente neste freezer. Disponível: ${available} cm.`);
     return;
   }
 
@@ -222,7 +237,7 @@ function renderMetrics() {
   elements.metricProfit.textContent = formatCurrency(profit);
   elements.metricMargin.textContent = `Margem ${margin.toFixed(1)}%`;
   elements.metricOccupancy.textContent = `${occupancy.toFixed(1)}%`;
-  elements.metricAvailable.textContent = `${available} cm disponiveis`;
+  elements.metricAvailable.textContent = `${available} cm disponíveis`;
   renderOpportunitySummary(activeContracts, available);
 }
 
@@ -230,6 +245,15 @@ function renderLists() {
   renderFreezers();
   renderFinanceTable();
   renderContracts();
+}
+
+function showPage(pageName) {
+  elements.pageViews.forEach((page) => {
+    page.classList.toggle("active", page.dataset.page === pageName);
+  });
+  elements.tabButtons.forEach((button) => {
+    button.classList.toggle("active", button.dataset.pageTarget === pageName);
+  });
 }
 
 function renderOpportunitySummary(activeContracts, availableCm) {
@@ -260,15 +284,15 @@ function renderOpportunitySummary(activeContracts, availableCm) {
   const focusLevel = idleCost > 0 || freezersWithSpace.length ? "warn" : "ok";
 
   elements.metricEmptySpace.textContent = `${availableCm} cm`;
-  elements.metricEmptyEquivalent.textContent = `Equivale a ${freezerEquivalent.toFixed(1)} freezer(s) de capacidade media`;
+  elements.metricEmptyEquivalent.textContent = `Equivale a ${freezerEquivalent.toFixed(1)} freezer(s) de capacidade média`;
   elements.metricIdleCost.textContent = formatCurrency(idleCost);
   elements.metricIdleCount.textContent = `${emptyFreezers.length + underusedFreezers.length} freezer(s) vazios ou abaixo de 50%`;
   elements.metricSmallClients.textContent = String(smallContracts.length);
   elements.metricSmallSpace.textContent = `${smallSpace} cm ocupados em planos 1/4 e 1/2`;
   elements.focusCaption.className = `status-pill ${focusLevel}`;
   elements.focusCaption.textContent = focusLevel === "warn"
-    ? "Ha oportunidades de consolidacao"
-    : "Ocupacao bem distribuida";
+    ? "Há oportunidades de consolidação"
+    : "Ocupação bem distribuída";
 
   const recommendations = buildRecommendations({
     emptyFreezers,
@@ -281,7 +305,7 @@ function renderOpportunitySummary(activeContracts, availableCm) {
     elements.opportunityList.innerHTML = `
       <div class="empty-state compact">
         <strong>Nenhuma oportunidade clara agora</strong>
-        <p>Quando houver freezers com espaco livre relevante, eles aparecerao aqui primeiro.</p>
+        <p>Quando houver freezers com espaço livre relevante, eles aparecerão aqui primeiro.</p>
       </div>
     `;
     return;
@@ -308,10 +332,10 @@ function buildRecommendations({ emptyFreezers, underusedFreezers, freezersWithSp
   emptyFreezers.slice(0, 2).forEach(({ freezer }) => {
     recommendations.push({
       priority: "high",
-      title: `${freezer.name} esta vazio`,
+      title: `${freezer.name} está vazio`,
       description: `${getRoom(freezer.roomId)?.name || "Sem sala"} - custo mensal sem receita.`,
       value: formatCurrency(freezer.monthlyCost),
-      detail: "custo eliminavel se devolver/realocar equipamento",
+      detail: "custo eliminável se devolver/realocar equipamento",
       action: "edit-freezer",
       id: freezer.id,
       button: "Editar"
@@ -321,10 +345,10 @@ function buildRecommendations({ emptyFreezers, underusedFreezers, freezersWithSp
   underusedFreezers.slice(0, 3).forEach(({ freezer, stats }) => {
     recommendations.push({
       priority: "medium",
-      title: `${freezer.name} esta com ${stats.availableCm} cm livres`,
+      title: `${freezer.name} está com ${stats.availableCm} cm livres`,
       description: `${stats.occupancy.toFixed(1)}% ocupado, ${formatCurrency(stats.profit)} de resultado.`,
       value: `${stats.availableCm} cm`,
-      detail: "espaco para puxar clientes menores",
+      detail: "espaço para puxar clientes menores",
       action: "edit-freezer",
       id: freezer.id,
       button: "Ver freezer"
@@ -342,11 +366,11 @@ function buildRecommendations({ emptyFreezers, underusedFreezers, freezersWithSp
       const origin = state.data.freezers.find((freezer) => freezer.id === contract.freezerId);
       recommendations.push({
         priority: "low",
-        title: `Mover ${contract.clientName} pode concentrar espaco`,
+        title: `Mover ${contract.clientName} pode concentrar espaço`,
         description: `Hoje em ${origin?.name || "freezer atual"}, ocupa ${contract.occupiedCm} cm. ${target.freezer.name} tem ${target.stats.availableCm} cm livres.`,
         value: getPlanLabel(contract.planKey),
         detail: "cliente pequeno para reagrupar",
-        action: "edit-contract",
+        action: "open-move",
         id: contract.id,
         button: "Mover"
       });
@@ -371,7 +395,7 @@ function renderFreezers() {
     const room = getRoom(freezer.roomId);
 
     return `
-      <article class="freezer-card ${statusClass}">
+      <article class="freezer-card ${statusClass}" data-freezer-id="${freezer.id}">
         <div class="freezer-head">
           <div>
             <h3>${escapeHtml(freezer.name)}</h3>
@@ -383,18 +407,18 @@ function renderFreezers() {
           <div style="width:${Math.min(100, stats.occupancy)}%"></div>
         </div>
         <div class="freezer-stats">
-          <div class="stat-box"><span>Ocupacao</span><strong>${stats.occupancy.toFixed(1)}%</strong></div>
+          <div class="stat-box"><span>Ocupação</span><strong>${stats.occupancy.toFixed(1)}%</strong></div>
           <div class="stat-box"><span>Receita</span><strong>${formatCurrency(stats.revenue)}</strong></div>
           <div class="stat-box"><span>Resultado</span><strong>${formatCurrency(stats.profit)}</strong></div>
         </div>
         <div class="mini-list">
           ${clients.length ? clients.map((contract) => `
-            <div class="mini-client">
+            <div class="mini-client" draggable="true" data-contract-id="${contract.id}">
               <div>
                 <strong>${escapeHtml(contract.clientName)}</strong>
                 <span>${getPlanLabel(contract.planKey)} - ${contract.occupiedCm} cm - ${formatCurrency(contract.monthlyFee)}</span>
               </div>
-              <button class="button secondary" type="button" data-action="edit-contract" data-id="${contract.id}">Mover</button>
+              <button class="button secondary" type="button" data-action="open-move" data-id="${contract.id}">Mover</button>
             </div>
           `).join("") : `<span class="muted">Sem clientes ativos neste freezer.</span>`}
         </div>
@@ -417,16 +441,20 @@ function renderFinanceTable() {
   elements.financeTable.innerHTML = freezers.map((freezer) => {
     const stats = getFreezerStats(freezer);
     const revenuePerCm = stats.occupiedCm > 0 ? stats.revenue / stats.occupiedCm : 0;
+    const fixedCostPerClient = stats.clientCount > 0 ? freezer.monthlyCost / stats.clientCount : freezer.monthlyCost;
+    const fixedCostPerOccupiedCm = stats.occupiedCm > 0 ? freezer.monthlyCost / stats.occupiedCm : freezer.monthlyCost;
     const margin = stats.revenue > 0 ? (stats.profit / stats.revenue) * 100 : 0;
 
     return `
       <article class="table-row">
         <div><strong>${escapeHtml(freezer.name)}</strong><span>${escapeHtml(getRoom(freezer.roomId)?.name || "Sem sala")}</span></div>
         <div><strong>${formatCurrency(stats.revenue)}</strong><span>Faturamento</span></div>
-        <div><strong>${formatCurrency(freezer.monthlyCost)}</strong><span>Custo</span></div>
+        <div><strong>${formatCurrency(freezer.monthlyCost)}</strong><span>Custo fixo do freezer</span></div>
         <div><strong>${formatCurrency(stats.profit)}</strong><span>Resultado</span></div>
         <div><strong>${margin.toFixed(1)}%</strong><span>Margem</span></div>
-        <div><strong>${formatCurrency(revenuePerCm)}</strong><span>Receita/cm</span></div>
+        <div><strong>${formatCurrency(fixedCostPerClient)}</strong><span>Custo diluído/cliente</span></div>
+        <div><strong>${formatCurrency(fixedCostPerOccupiedCm)}</strong><span>Custo fixo/cm ocupado</span></div>
+        <div><strong>${formatCurrency(revenuePerCm)}</strong><span>Receita/cm ocupado</span></div>
         <div class="row-actions">
           <button class="button secondary" type="button" data-action="edit-freezer" data-id="${freezer.id}">Editar</button>
         </div>
@@ -453,7 +481,8 @@ function renderContracts() {
         <div><strong>${formatCurrency(contract.monthlyFee)}</strong><span>Mensalidade</span></div>
         <div><strong>${escapeHtml(freezer?.name || "Sem freezer")}</strong><span>${escapeHtml(room?.name || "Sem sala")}</span></div>
         <div class="row-actions">
-          <button class="button secondary" type="button" data-action="edit-contract" data-id="${contract.id}">Editar/mover</button>
+          <button class="button secondary" type="button" data-action="edit-contract" data-id="${contract.id}">Editar</button>
+          <button class="button secondary" type="button" data-action="open-move" data-id="${contract.id}">Mover</button>
           <button class="button danger" type="button" data-action="delete-contract" data-id="${contract.id}">Remover</button>
         </div>
       </article>
@@ -464,6 +493,7 @@ function renderContracts() {
 function editRoom(id) {
   const room = state.data.rooms.find((item) => item.id === id);
   if (!room) return;
+  showPage("setup");
   setFormValues(elements.roomForm, room);
   elements.roomForm.scrollIntoView({ behavior: "smooth", block: "start" });
 }
@@ -471,6 +501,7 @@ function editRoom(id) {
 function editFreezer(id) {
   const freezer = state.data.freezers.find((item) => item.id === id);
   if (!freezer) return;
+  showPage("setup");
   setFormValues(elements.freezerForm, freezer);
   elements.freezerForm.scrollIntoView({ behavior: "smooth", block: "start" });
 }
@@ -478,6 +509,7 @@ function editFreezer(id) {
 function editContract(id) {
   const contract = state.data.contracts.find((item) => item.id === id);
   if (!contract) return;
+  showPage("clients");
   setFormValues(elements.contractForm, contract);
   elements.contractForm.scrollIntoView({ behavior: "smooth", block: "start" });
 }
@@ -510,6 +542,123 @@ async function deleteContract(id) {
   render();
 }
 
+function openMoveModal(contractId) {
+  const contract = state.data.contracts.find((item) => item.id === contractId);
+  if (!contract) {
+    return;
+  }
+
+  const currentFreezer = state.data.freezers.find((freezer) => freezer.id === contract.freezerId);
+  elements.moveSummary.textContent = `${contract.clientName} ocupa ${contract.occupiedCm} cm no ${currentFreezer?.name || "freezer atual"}.`;
+
+  const targets = state.data.freezers
+    .filter((freezer) => freezer.id !== contract.freezerId)
+    .map((freezer) => {
+      const stats = getFreezerStats(freezer);
+      return { freezer, stats, fits: stats.availableCm >= contract.occupiedCm };
+    })
+    .sort((left, right) => Number(right.fits) - Number(left.fits) || right.stats.availableCm - left.stats.availableCm);
+
+  if (!targets.length) {
+    elements.moveTargets.innerHTML = `
+      <div class="empty-state compact">
+        <strong>Nenhum outro freezer cadastrado</strong>
+        <p>Cadastre outro freezer antes de mover este cliente.</p>
+      </div>
+    `;
+  } else {
+    elements.moveTargets.innerHTML = targets.map(({ freezer, stats, fits }) => `
+      <button class="move-target ${fits ? "" : "disabled"}" type="button" data-action="move-contract" data-id="${contract.id}" data-freezer-id="${freezer.id}" ${fits ? "" : "disabled"}>
+        <div>
+          <strong>${escapeHtml(freezer.name)}</strong>
+          <span>${escapeHtml(getRoom(freezer.roomId)?.name || "Sem sala")} - ${stats.availableCm} cm disponíveis</span>
+        </div>
+        <span class="status-pill ${fits ? "ok" : "bad"}">${fits ? "Mover para cá" : "Sem espaço"}</span>
+      </button>
+    `).join("");
+  }
+
+  elements.moveModal.hidden = false;
+}
+
+function closeMoveModal() {
+  elements.moveModal.hidden = true;
+  elements.moveSummary.textContent = "";
+  elements.moveTargets.innerHTML = "";
+}
+
+async function moveContract(contractId, targetFreezerId) {
+  const contract = state.data.contracts.find((item) => item.id === contractId);
+  const targetFreezer = state.data.freezers.find((freezer) => freezer.id === targetFreezerId);
+  if (!contract || !targetFreezer) {
+    return;
+  }
+  if (contract.freezerId === targetFreezerId) {
+    closeMoveModal();
+    return;
+  }
+
+  const targetStats = getFreezerStats(targetFreezer);
+  if (targetStats.availableCm < contract.occupiedCm) {
+    window.alert(`Espaço insuficiente neste freezer. Disponível: ${targetStats.availableCm} cm.`);
+    return;
+  }
+
+  contract.freezerId = targetFreezerId;
+  await persistData();
+  closeMoveModal();
+  render();
+}
+
+function handleDragStart(event) {
+  const clientCard = event.target.closest("[data-contract-id]");
+  if (!clientCard) {
+    return;
+  }
+
+  event.dataTransfer.effectAllowed = "move";
+  event.dataTransfer.setData("text/plain", clientCard.dataset.contractId);
+  clientCard.classList.add("dragging");
+}
+
+function handleDragOver(event) {
+  const freezerCard = event.target.closest("[data-freezer-id]");
+  if (!freezerCard) {
+    return;
+  }
+
+  event.preventDefault();
+  event.dataTransfer.dropEffect = "move";
+  freezerCard.classList.add("drag-over");
+}
+
+function handleDragLeave(event) {
+  const freezerCard = event.target.closest("[data-freezer-id]");
+  if (!freezerCard || freezerCard.contains(event.relatedTarget)) {
+    return;
+  }
+
+  freezerCard.classList.remove("drag-over");
+}
+
+async function handleDrop(event) {
+  const freezerCard = event.target.closest("[data-freezer-id]");
+  if (!freezerCard) {
+    return;
+  }
+
+  event.preventDefault();
+  document.querySelectorAll(".drag-over, .dragging").forEach((element) => {
+    element.classList.remove("drag-over", "dragging");
+  });
+
+  const contractId = event.dataTransfer.getData("text/plain");
+  const targetFreezerId = freezerCard.dataset.freezerId;
+  if (contractId && targetFreezerId) {
+    await moveContract(contractId, targetFreezerId);
+  }
+}
+
 function applyPlanDefaults() {
   const plan = plans[elements.contractForm.elements.namedItem("planKey").value] || plans.quarter;
   const form = elements.contractForm;
@@ -529,6 +678,7 @@ function getFreezerStats(freezer) {
   return {
     occupiedCm,
     shelvesUsed,
+    clientCount: activeContracts.length,
     revenue,
     availableCm,
     occupancy,
@@ -570,7 +720,7 @@ async function loadDemoData() {
 
   state.data = {
     rooms: [
-      { id: roomA, name: "Sala fria 01", notes: "Operacao congelada" },
+      { id: roomA, name: "Sala fria 01", notes: "Operação congelada" },
       { id: roomB, name: "Sala refrigerada 02", notes: "Produtos resfriados" }
     ],
     freezers: [
@@ -629,7 +779,7 @@ function importData(event) {
       persistData();
       render();
     } catch (error) {
-      window.alert("Nao foi possivel importar o JSON.");
+      window.alert("Não foi possível importar o JSON.");
     } finally {
       event.target.value = "";
     }
@@ -670,7 +820,7 @@ async function loadData() {
   } catch (error) {
     state.sharedMode = false;
     state.sharedProvider = "local";
-    window.alert("Nao foi possivel conectar ao armazenamento compartilhado. Os dados serao salvos apenas neste navegador enquanto o servidor estiver indisponivel.");
+    window.alert("Não foi possível conectar ao armazenamento compartilhado. Os dados serão salvos apenas neste navegador enquanto o servidor estiver indisponível.");
     return localData;
   }
 }
@@ -702,7 +852,7 @@ async function persistData() {
         await saveServerData(state.data);
       }
     } catch (error) {
-      window.alert("Nao foi possivel salvar no armazenamento compartilhado. Verifique a conexao e tente novamente.");
+      window.alert("Não foi possível salvar no armazenamento compartilhado. Verifique a conexão e tente novamente.");
       throw error;
     }
   }
@@ -793,7 +943,7 @@ async function saveServerData(data) {
     body: JSON.stringify(sanitizeData(data))
   });
   if (!response.ok) {
-    throw new Error("Nao foi possivel salvar no servidor.");
+    throw new Error("Não foi possível salvar no servidor.");
   }
 }
 
