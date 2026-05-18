@@ -24,6 +24,34 @@
     </header>
 
     <main>
+      <section class="focus-panel" aria-label="Oportunidades de eficiencia">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">Espacos vazios</p>
+            <h2>Onde ha mais chance de reduzir custo de freezer</h2>
+          </div>
+          <span id="focus-caption" class="status-pill warn">Analisando ocupacao</span>
+        </div>
+        <div class="opportunity-grid">
+          <article class="opportunity-card primary">
+            <span>Espaco livre total</span>
+            <strong id="metric-empty-space">0 cm</strong>
+            <small id="metric-empty-equivalent">Equivale a 0 freezer(s)</small>
+          </article>
+          <article class="opportunity-card">
+            <span>Custo em freezers vazios/subutilizados</span>
+            <strong id="metric-idle-cost">R$ 0,00</strong>
+            <small id="metric-idle-count">0 freezer(s) abaixo de 50%</small>
+          </article>
+          <article class="opportunity-card">
+            <span>Clientes pequenos para reagrupar</span>
+            <strong id="metric-small-clients">0</strong>
+            <small id="metric-small-space">0 cm ocupados em planos 1/4 e 1/2</small>
+          </article>
+        </div>
+        <div id="opportunity-list" class="opportunity-list"></div>
+      </section>
+
       <section class="metrics-grid" aria-label="Resumo geral">
         <article class="metric-card">
           <span>Faturamento mensal</span>

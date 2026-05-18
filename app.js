@@ -37,6 +37,14 @@ const elements = {
   metricMargin: document.querySelector("#metric-margin"),
   metricOccupancy: document.querySelector("#metric-occupancy"),
   metricAvailable: document.querySelector("#metric-available"),
+  focusCaption: document.querySelector("#focus-caption"),
+  metricEmptySpace: document.querySelector("#metric-empty-space"),
+  metricEmptyEquivalent: document.querySelector("#metric-empty-equivalent"),
+  metricIdleCost: document.querySelector("#metric-idle-cost"),
+  metricIdleCount: document.querySelector("#metric-idle-count"),
+  metricSmallClients: document.querySelector("#metric-small-clients"),
+  metricSmallSpace: document.querySelector("#metric-small-space"),
+  opportunityList: document.querySelector("#opportunity-list"),
   roomForm: document.querySelector("#room-form"),
   freezerForm: document.querySelector("#freezer-form"),
   contractForm: document.querySelector("#contract-form"),
@@ -215,12 +223,137 @@ function renderMetrics() {
   elements.metricMargin.textContent = `Margem ${margin.toFixed(1)}%`;
   elements.metricOccupancy.textContent = `${occupancy.toFixed(1)}%`;
   elements.metricAvailable.textContent = `${available} cm disponiveis`;
+  renderOpportunitySummary(activeContracts, available);
 }
 
 function renderLists() {
   renderFreezers();
   renderFinanceTable();
   renderContracts();
+}
+
+function renderOpportunitySummary(activeContracts, availableCm) {
+  const activeFreezers = state.data.freezers.map((freezer) => ({
+    freezer,
+    stats: getFreezerStats(freezer)
+  }));
+
+  const underusedFreezers = activeFreezers
+    .filter(({ stats }) => stats.occupancy > 0 && stats.occupancy < 50)
+    .sort((left, right) => right.stats.availableCm - left.stats.availableCm);
+  const emptyFreezers = activeFreezers
+    .filter(({ stats }) => stats.occupancy === 0)
+    .sort((left, right) => right.freezer.monthlyCost - left.freezer.monthlyCost);
+  const freezersWithSpace = activeFreezers
+    .filter(({ stats }) => stats.availableCm >= 35)
+    .sort((left, right) => right.stats.availableCm - left.stats.availableCm);
+  const smallContracts = activeContracts
+    .filter((contract) => contract.planKey === "quarter" || contract.planKey === "half")
+    .sort((left, right) => left.occupiedCm - right.occupiedCm);
+
+  const idleCost = [...emptyFreezers, ...underusedFreezers]
+    .reduce((sum, item) => sum + item.freezer.monthlyCost, 0);
+  const freezerEquivalent = state.data.freezers.length
+    ? availableCm / averageFreezerCapacity()
+    : 0;
+  const smallSpace = smallContracts.reduce((sum, contract) => sum + contract.occupiedCm, 0);
+  const focusLevel = idleCost > 0 || freezersWithSpace.length ? "warn" : "ok";
+
+  elements.metricEmptySpace.textContent = `${availableCm} cm`;
+  elements.metricEmptyEquivalent.textContent = `Equivale a ${freezerEquivalent.toFixed(1)} freezer(s) de capacidade media`;
+  elements.metricIdleCost.textContent = formatCurrency(idleCost);
+  elements.metricIdleCount.textContent = `${emptyFreezers.length + underusedFreezers.length} freezer(s) vazios ou abaixo de 50%`;
+  elements.metricSmallClients.textContent = String(smallContracts.length);
+  elements.metricSmallSpace.textContent = `${smallSpace} cm ocupados em planos 1/4 e 1/2`;
+  elements.focusCaption.className = `status-pill ${focusLevel}`;
+  elements.focusCaption.textContent = focusLevel === "warn"
+    ? "Ha oportunidades de consolidacao"
+    : "Ocupacao bem distribuida";
+
+  const recommendations = buildRecommendations({
+    emptyFreezers,
+    underusedFreezers,
+    freezersWithSpace,
+    smallContracts
+  });
+
+  if (!recommendations.length) {
+    elements.opportunityList.innerHTML = `
+      <div class="empty-state compact">
+        <strong>Nenhuma oportunidade clara agora</strong>
+        <p>Quando houver freezers com espaco livre relevante, eles aparecerao aqui primeiro.</p>
+      </div>
+    `;
+    return;
+  }
+
+  elements.opportunityList.innerHTML = recommendations.map((item) => `
+    <article class="opportunity-row ${item.priority}">
+      <div>
+        <strong>${item.title}</strong>
+        <span>${item.description}</span>
+      </div>
+      <div>
+        <strong>${item.value}</strong>
+        <span>${item.detail}</span>
+      </div>
+      <button class="button secondary" type="button" data-action="${item.action}" data-id="${item.id}">${item.button}</button>
+    </article>
+  `).join("");
+}
+
+function buildRecommendations({ emptyFreezers, underusedFreezers, freezersWithSpace, smallContracts }) {
+  const recommendations = [];
+
+  emptyFreezers.slice(0, 2).forEach(({ freezer }) => {
+    recommendations.push({
+      priority: "high",
+      title: `${freezer.name} esta vazio`,
+      description: `${getRoom(freezer.roomId)?.name || "Sem sala"} - custo mensal sem receita.`,
+      value: formatCurrency(freezer.monthlyCost),
+      detail: "custo eliminavel se devolver/realocar equipamento",
+      action: "edit-freezer",
+      id: freezer.id,
+      button: "Editar"
+    });
+  });
+
+  underusedFreezers.slice(0, 3).forEach(({ freezer, stats }) => {
+    recommendations.push({
+      priority: "medium",
+      title: `${freezer.name} esta com ${stats.availableCm} cm livres`,
+      description: `${stats.occupancy.toFixed(1)}% ocupado, ${formatCurrency(stats.profit)} de resultado.`,
+      value: `${stats.availableCm} cm`,
+      detail: "espaco para puxar clientes menores",
+      action: "edit-freezer",
+      id: freezer.id,
+      button: "Ver freezer"
+    });
+  });
+
+  if (smallContracts.length && freezersWithSpace.length) {
+    const target = freezersWithSpace[0];
+    const movable = smallContracts
+      .filter((contract) => contract.freezerId !== target.freezer.id)
+      .filter((contract) => contract.occupiedCm <= target.stats.availableCm)
+      .slice(0, 3);
+
+    movable.forEach((contract) => {
+      const origin = state.data.freezers.find((freezer) => freezer.id === contract.freezerId);
+      recommendations.push({
+        priority: "low",
+        title: `Mover ${contract.clientName} pode concentrar espaco`,
+        description: `Hoje em ${origin?.name || "freezer atual"}, ocupa ${contract.occupiedCm} cm. ${target.freezer.name} tem ${target.stats.availableCm} cm livres.`,
+        value: getPlanLabel(contract.planKey),
+        detail: "cliente pequeno para reagrupar",
+        action: "edit-contract",
+        id: contract.id,
+        button: "Mover"
+      });
+    });
+  }
+
+  return recommendations.slice(0, 6);
 }
 
 function renderFreezers() {
@@ -409,6 +542,11 @@ function getFilteredFreezers() {
 
 function getFreezerContracts(freezerId) {
   return state.data.contracts.filter((contract) => contract.freezerId === freezerId);
+}
+
+function averageFreezerCapacity() {
+  const totalCapacity = state.data.freezers.reduce((sum, freezer) => sum + freezer.capacityCm, 0);
+  return totalCapacity / Math.max(1, state.data.freezers.length);
 }
 
 function getRoom(roomId) {

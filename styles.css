@@ -114,6 +114,93 @@ select {
   margin-bottom: 18px;
 }
 
+.focus-panel {
+  padding: 18px;
+  margin-bottom: 18px;
+  border: 1px solid #cdded8;
+  border-radius: 8px;
+  background: linear-gradient(180deg, #ffffff 0%, #f1f8f5 100%);
+  box-shadow: var(--shadow);
+}
+
+.opportunity-grid {
+  display: grid;
+  grid-template-columns: 1.25fr 1fr 1fr;
+  gap: 14px;
+  margin-bottom: 14px;
+}
+
+.opportunity-card {
+  min-height: 126px;
+  padding: 18px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+}
+
+.opportunity-card.primary {
+  color: #fff;
+  background: #0b6655;
+  border-color: #0b6655;
+}
+
+.opportunity-card.primary span,
+.opportunity-card.primary small {
+  color: rgba(255, 255, 255, 0.78);
+}
+
+.opportunity-card span,
+.opportunity-card small {
+  color: var(--muted);
+}
+
+.opportunity-card strong {
+  font-size: 2.2rem;
+}
+
+.opportunity-list {
+  display: grid;
+  gap: 10px;
+}
+
+.opportunity-row {
+  display: grid;
+  grid-template-columns: minmax(220px, 1.4fr) minmax(160px, 0.8fr) auto;
+  gap: 12px;
+  align-items: center;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-left-width: 5px;
+  border-radius: 8px;
+  background: #fff;
+}
+
+.opportunity-row.high {
+  border-left-color: var(--danger);
+}
+
+.opportunity-row.medium {
+  border-left-color: var(--amber);
+}
+
+.opportunity-row.low {
+  border-left-color: var(--blue);
+}
+
+.opportunity-row strong,
+.opportunity-row span {
+  display: block;
+}
+
+.opportunity-row span {
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: 0.92rem;
+}
+
 .metric-card,
 .panel {
   background: var(--panel);
@@ -384,6 +471,10 @@ select:focus {
   background: var(--panel-soft);
 }
 
+.empty-state.compact {
+  padding: 22px 16px;
+}
+
 @media (max-width: 1360px) {
   .layout-grid {
     grid-template-columns: 1fr;
@@ -397,12 +488,14 @@ select:focus {
 
 @media (max-width: 1180px) {
   .metrics-grid,
-  .freezer-list {
+  .freezer-list,
+  .opportunity-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .table-row,
-  .table-row.contract-row {
+  .table-row.contract-row,
+  .opportunity-row {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
@@ -434,10 +527,12 @@ select:focus {
 
   .metrics-grid,
   .freezer-list,
+  .opportunity-grid,
   .two-cols,
   .freezer-stats,
   .table-row,
-  .table-row.contract-row {
+  .table-row.contract-row,
+  .opportunity-row {
     grid-template-columns: 1fr;
   }
 
