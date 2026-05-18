@@ -632,11 +632,11 @@ function openMoveModal(contractId) {
     `).join("");
   }
 
-  elements.moveModal.hidden = false;
+  elements.moveModal.classList.remove("is-hidden");
 }
 
 function closeMoveModal() {
-  elements.moveModal.hidden        = true;
+  elements.moveModal.classList.add("is-hidden");
   elements.moveSummary.innerHTML   = "";
   elements.moveTargets.innerHTML   = "";
 }

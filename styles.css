@@ -527,6 +527,8 @@ select option { background: var(--bg-3); }
   padding: 1rem;
   animation: fadein .15s ease;
 }
+.modal-backdrop[hidden],
+.modal-backdrop.is-hidden { display: none !important; }
 @keyframes fadein { from { opacity: 0; } to { opacity: 1; } }
 
 .modal {
