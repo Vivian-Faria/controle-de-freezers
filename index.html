@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Gestao de Espacos de Freezers</title>
+  <link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+  <div class="app-shell">
+    <header class="topbar">
+      <div>
+        <p class="eyebrow">Operacao refrigerada</p>
+        <h1>Gestao de espacos de freezers</h1>
+      </div>
+      <div class="actions-row">
+        <button id="load-demo" class="button secondary" type="button">Carregar exemplo</button>
+        <button id="export-data" class="button secondary" type="button">Exportar</button>
+        <label class="button secondary import-label">
+          Importar
+          <input id="import-data" type="file" accept="application/json">
+        </label>
+      </div>
+    </header>
+
+    <main>
+      <section class="metrics-grid" aria-label="Resumo geral">
+        <article class="metric-card">
+          <span>Faturamento mensal</span>
+          <strong id="metric-revenue">R$ 0,00</strong>
+          <small id="metric-active-contracts">0 contratos ativos</small>
+        </article>
+        <article class="metric-card">
+          <span>Custo dos equipamentos</span>
+          <strong id="metric-cost">R$ 0,00</strong>
+          <small id="metric-freezers">0 freezers cadastrados</small>
+        </article>
+        <article class="metric-card">
+          <span>Resultado estimado</span>
+          <strong id="metric-profit">R$ 0,00</strong>
+          <small id="metric-margin">Margem 0%</small>
+        </article>
+        <article class="metric-card">
+          <span>Espaco ocupado</span>
+          <strong id="metric-occupancy">0%</strong>
+          <small id="metric-available">0 cm disponiveis</small>
+        </article>
+      </section>
+
+      <section class="layout-grid">
+        <aside class="panel side-panel">
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">Cadastros</p>
+              <h2>Dados operacionais</h2>
+            </div>
+          </div>
+
+          <form id="room-form" class="form-stack">
+            <input name="id" type="hidden">
+            <h3>Sala</h3>
+            <label>
+              <span>Nome da sala</span>
+              <input name="name" type="text" placeholder="Ex.: Sala fria 01" required>
+            </label>
+            <label>
+              <span>Observacao</span>
+              <input name="notes" type="text" placeholder="Ex.: corredor esquerdo">
+            </label>
+            <button class="button primary" type="submit">Salvar sala</button>
+          </form>
+
+          <form id="freezer-form" class="form-stack">
+            <input name="id" type="hidden">
+            <h3>Freezer</h3>
+            <label>
+              <span>Sala</span>
+              <select name="roomId" required></select>
+            </label>
+            <label>
+              <span>Nome ou codigo</span>
+              <input name="name" type="text" placeholder="Ex.: FZ-01" required>
+            </label>
+            <div class="two-cols">
+              <label>
+                <span>Tipo</span>
+                <select name="temperatureType" required>
+                  <option value="Congelado">Congelado</option>
+                  <option value="Refrigerado">Refrigerado</option>
+                </select>
+              </label>
+              <label>
+                <span>Capacidade (cm)</span>
+                <input name="capacityCm" type="number" min="1" step="1" value="140" required>
+              </label>
+            </div>
+            <div class="two-cols">
+              <label>
+                <span>Prateleiras</span>
+                <input name="shelves" type="number" min="1" step="1" value="6" required>
+              </label>
+              <label>
+                <span>Custo aluguel</span>
+                <input name="monthlyCost" type="number" min="0" step="0.01" placeholder="0,00" required>
+              </label>
+            </div>
+            <button class="button primary" type="submit">Salvar freezer</button>
+          </form>
+
+          <form id="contract-form" class="form-stack">
+            <input name="id" type="hidden">
+            <h3>Cliente no freezer</h3>
+            <label>
+              <span>Cliente</span>
+              <input name="clientName" type="text" placeholder="Nome do cliente" required>
+            </label>
+            <label>
+              <span>Freezer</span>
+              <select name="freezerId" required></select>
+            </label>
+            <div class="two-cols">
+              <label>
+                <span>Plano</span>
+                <select name="planKey" required></select>
+              </label>
+              <label>
+                <span>Status</span>
+                <select name="status" required>
+                  <option value="active">Ativo</option>
+                  <option value="paused">Pausado</option>
+                </select>
+              </label>
+            </div>
+            <div class="two-cols">
+              <label>
+                <span>Espaco ocupado (cm)</span>
+                <input name="occupiedCm" type="number" min="1" step="1" required>
+              </label>
+              <label>
+                <span>Prateleiras usadas</span>
+                <input name="shelvesUsed" type="number" min="1" step="1" required>
+              </label>
+            </div>
+            <div class="two-cols">
+              <label>
+                <span>Valor mensal</span>
+                <input name="monthlyFee" type="number" min="0" step="0.01" required>
+              </label>
+              <label>
+                <span>Inicio</span>
+                <input name="startDate" type="date" required>
+              </label>
+            </div>
+            <button class="button primary" type="submit">Salvar cliente</button>
+          </form>
+        </aside>
+
+        <section class="content-stack">
+          <div class="panel">
+            <div class="section-heading">
+              <div>
+                <p class="eyebrow">Disponibilidade</p>
+                <h2>Freezers por sala</h2>
+              </div>
+              <label class="inline-filter">
+                <span>Filtrar sala</span>
+                <select id="room-filter"></select>
+              </label>
+            </div>
+            <div id="freezer-list" class="freezer-list"></div>
+          </div>
+
+          <div class="panel">
+            <div class="section-heading">
+              <div>
+                <p class="eyebrow">Financeiro</p>
+                <h2>Rentabilidade por freezer</h2>
+              </div>
+            </div>
+            <div id="finance-table" class="table-list"></div>
+          </div>
+
+          <div class="panel">
+            <div class="section-heading">
+              <div>
+                <p class="eyebrow">Clientes</p>
+                <h2>Contratos e movimentacao</h2>
+              </div>
+            </div>
+            <div id="contract-list" class="table-list"></div>
+          </div>
+        </section>
+      </section>
+    </main>
+  </div>
+
+  <template id="empty-template">
+    <div class="empty-state">
+      <strong>Nenhum registro encontrado</strong>
+      <p>Cadastre dados ou carregue o exemplo para iniciar a analise.</p>
+    </div>
+  </template>
+
+  <script src="./app.js"></script>
+</body>
+</html>

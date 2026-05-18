@@ -1,0 +1,105 @@
+{
+  "rooms": [
+    {
+      "id": "f1e0172d-ebf3-46c1-9501-9c1b9476de19",
+      "name": "Sala fria 01",
+      "notes": "Operacao congelada"
+    },
+    {
+      "id": "00e7afd6-e5c7-42e9-a790-4b39f4d4aa1a",
+      "name": "Sala refrigerada 02",
+      "notes": "Produtos resfriados"
+    },
+    {
+      "id": "cbb3f2fc-9bb9-44eb-9f22-8f47021283ba",
+      "name": "Sala 2",
+      "notes": ""
+    }
+  ],
+  "freezers": [
+    {
+      "id": "9ea6757d-b0d5-413d-b3ec-3898f47efa41",
+      "roomId": "f1e0172d-ebf3-46c1-9501-9c1b9476de19",
+      "name": "FZ-01",
+      "temperatureType": "Congelado",
+      "capacityCm": 140,
+      "shelves": 6,
+      "monthlyCost": 760
+    },
+    {
+      "id": "4922d5d0-53bc-4083-a1dc-30c75013562c",
+      "roomId": "f1e0172d-ebf3-46c1-9501-9c1b9476de19",
+      "name": "FZ-02",
+      "temperatureType": "Congelado",
+      "capacityCm": 140,
+      "shelves": 6,
+      "monthlyCost": 820
+    },
+    {
+      "id": "3b1f3609-b4cf-44d5-90b5-22ecf145a5f5",
+      "roomId": "00e7afd6-e5c7-42e9-a790-4b39f4d4aa1a",
+      "name": "RF-01",
+      "temperatureType": "Refrigerado",
+      "capacityCm": 140,
+      "shelves": 6,
+      "monthlyCost": 690
+    }
+  ],
+  "contracts": [
+    {
+      "id": "57ab1dcd-5b21-4f91-9333-a19b0bd54718",
+      "clientName": "Acai Norte",
+      "freezerId": "9ea6757d-b0d5-413d-b3ec-3898f47efa41",
+      "planKey": "half",
+      "occupiedCm": 70,
+      "shelvesUsed": 4,
+      "monthlyFee": 1290,
+      "startDate": "2026-01-28",
+      "status": "active"
+    },
+    {
+      "id": "595f1371-1c8b-4a85-9c28-4899797b034d",
+      "clientName": "Doces Bela Vista",
+      "freezerId": "9ea6757d-b0d5-413d-b3ec-3898f47efa41",
+      "planKey": "quarter",
+      "occupiedCm": 35,
+      "shelvesUsed": 2,
+      "monthlyFee": 890,
+      "startDate": "2026-03-25",
+      "status": "active"
+    },
+    {
+      "id": "d0b21306-9d77-4f06-b375-9d7276a5f72c",
+      "clientName": "Carnes Premium",
+      "freezerId": "4922d5d0-53bc-4083-a1dc-30c75013562c",
+      "planKey": "threeQuarter",
+      "occupiedCm": 105,
+      "shelvesUsed": 5,
+      "monthlyFee": 1690,
+      "startDate": "2026-04-16",
+      "status": "active"
+    },
+    {
+      "id": "dd9f8ce5-aa1b-4191-819c-0c4380166c3b",
+      "clientName": "Emporio Verde",
+      "freezerId": "3b1f3609-b4cf-44d5-90b5-22ecf145a5f5",
+      "planKey": "quarter",
+      "occupiedCm": 35,
+      "shelvesUsed": 2,
+      "monthlyFee": 890,
+      "startDate": "2026-04-30",
+      "status": "active"
+    },
+    {
+      "id": "2302c7ea-2304-482e-a4b8-01c7f6a8adaa",
+      "clientName": "Massas da Casa",
+      "freezerId": "3b1f3609-b4cf-44d5-90b5-22ecf145a5f5",
+      "planKey": "half",
+      "occupiedCm": 70,
+      "shelvesUsed": 4,
+      "monthlyFee": 1290,
+      "startDate": "2026-05-10",
+      "status": "active"
+    }
+  ]
+}
