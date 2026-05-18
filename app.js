@@ -77,7 +77,10 @@ function registerEvents() {
 
   elements.contractForm.elements.namedItem("planKey").addEventListener("change", applyPlanDefaults);
 
-  elements.moveClose.addEventListener("click", closeMoveModal);
+  elements.moveClose.addEventListener("click", (event) => {
+    event.stopPropagation();
+    closeMoveModal();
+  });
   elements.moveModal.addEventListener("click", (event) => {
     if (event.target === elements.moveModal) closeMoveModal();
   });
@@ -95,6 +98,9 @@ function registerEvents() {
   document.addEventListener("click", (event) => {
     const button = event.target.closest("[data-action]");
     if (!button) return;
+
+    // Prevent click from bubbling into drag handlers or double-firing
+    event.stopPropagation();
 
     const { action, id, freezerId } = button.dataset;
     if (action === "edit-room")       editRoom(id);
@@ -674,8 +680,9 @@ function handleDragStart(event) {
 }
 
 function handleDragOver(event) {
+  if (!event.dataTransfer?.types?.includes("text/plain")) return;
   const card = event.target.closest("[data-freezer-id]");
-  if (!card) return;
+  if (!card || elements.moveModal.contains(event.target)) return;
   event.preventDefault();
   event.dataTransfer.dropEffect = "move";
   card.classList.add("drag-over");
@@ -688,8 +695,9 @@ function handleDragLeave(event) {
 }
 
 async function handleDrop(event) {
+  if (!event.dataTransfer?.types?.includes("text/plain")) return;
   const card = event.target.closest("[data-freezer-id]");
-  if (!card) return;
+  if (!card || elements.moveModal.contains(event.target)) return;
   event.preventDefault();
   document.querySelectorAll(".drag-over, .dragging").forEach((el) => el.classList.remove("drag-over", "dragging"));
   const contractId      = event.dataTransfer.getData("text/plain");
@@ -850,11 +858,26 @@ async function loadData() {
     if (serverEmpty && localHas) { await saveServerData(localData); return localData; }
     localStorage.setItem(STORAGE_KEY, JSON.stringify(serverData));
     return serverData;
-  } catch (error) {
-    state.sharedMode     = false;
-    state.sharedProvider = "local";
-    return localData;
+  } catch (_) {
+    // API indisponível — continua com dados locais sem alert
   }
+
+  // Se não há dados locais, tenta carregar data.json como seed
+  const localHasData = localData.rooms.length || localData.freezers.length || localData.contracts.length;
+  if (!localHasData) {
+    try {
+      const response = await fetch("./data.json", { cache: "no-store" });
+      if (response.ok) {
+        const seed = sanitizeData(await response.json());
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(seed));
+        return seed;
+      }
+    } catch (_) {}
+  }
+
+  state.sharedMode     = false;
+  state.sharedProvider = "local";
+  return localData;
 }
 
 function loadLocalData() {
