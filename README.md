@@ -2,25 +2,44 @@
 
 Aplicacao para controlar salas, freezers, clientes, ocupacao em cm, custos dos equipamentos e faturamento por espaco locado.
 
+Os dados compartilhados ficam no Firebase Cloud Firestore. O Netlify hospeda a tela.
+
+## Configurar Firebase
+
+1. No Firebase Console, crie ou abra seu projeto.
+2. Crie um app Web.
+3. Copie o `firebaseConfig`.
+4. Substitua os valores em `firebase-config.js`.
+5. Ative o Cloud Firestore.
+6. Publique regras iguais ou equivalentes a `firestore.rules`.
+
+Exemplo de `firebase-config.js`:
+
+```js
+window.FIREBASE_CONFIG = {
+  apiKey: "SUA_CHAVE",
+  authDomain: "seu-projeto.firebaseapp.com",
+  projectId: "seu-projeto",
+  storageBucket: "seu-projeto.firebasestorage.app",
+  messagingSenderId: "000000000000",
+  appId: "1:000000000000:web:000000000000"
+};
+```
+
+Importante: as regras em `firestore.rules` deixam leitura e escrita abertas no documento do sistema. Isso facilita a primeira versao, mas qualquer pessoa com o link podera alterar os dados. Para uso real com permissao de edicao restrita, o proximo passo recomendado e adicionar login com Firebase Authentication.
+
 ## Deploy no Netlify
 
 Suba esta pasta completa para o GitHub e conecte o repositorio no Netlify.
 
-Configuracoes:
+Configuracoes no Netlify:
 
 ```text
-Build command: npm install
+Build command: deixe vazio
 Publish directory: .
-Functions directory: netlify/functions
 ```
 
-O arquivo `netlify.toml` ja deixa essas rotas configuradas:
-
-```text
-/api/data -> /.netlify/functions/data
-```
-
-Os dados compartilhados ficam salvos no Netlify Blobs. Na primeira abertura do site publicado, a Function usa `data.json` como carga inicial. Depois disso, os cadastros feitos pelo app passam a ser salvos no armazenamento compartilhado do Netlify e ficam visiveis para todos que abrirem o mesmo link.
+Na primeira abertura do site publicado, se o documento ainda nao existir no Firestore, o app usa `data.json` como carga inicial. Depois disso, os cadastros ficam salvos no Firestore e ficam visiveis para todos que abrirem o mesmo link.
 
 ## Arquivos principais
 
@@ -31,7 +50,8 @@ app.js
 data.json
 package.json
 netlify.toml
-netlify/functions/data.mjs
+firebase-config.js
+firestore.rules
 README.md
 ```
 

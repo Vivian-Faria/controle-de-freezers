@@ -1,5 +1,8 @@
 const STORAGE_KEY = "freezerSpaceManager-v1";
 const API_URL = "/api/data";
+const FIREBASE_SDK_VERSION = "12.7.0";
+const FIREBASE_COLLECTION = "sistemas";
+const FIREBASE_DOC_ID = "gestao-freezers";
 
 const plans = {
   quarter: { label: "1/4", temperature: "Refrigerado/Congelado", defaultFee: 890, defaultCm: 35, defaultShelves: 2 },
@@ -18,8 +21,12 @@ const state = {
   filters: {
     roomId: "all"
   },
-  sharedMode: false
+  sharedMode: false,
+  sharedProvider: "local"
 };
+
+let firebaseStore = null;
+let unsubscribeFirebase = null;
 
 const elements = {
   metricRevenue: document.querySelector("#metric-revenue"),
@@ -496,10 +503,22 @@ async function loadData() {
   const localData = loadLocalData();
 
   try {
+    const firebaseData = await loadFirebaseData(localData);
+    if (firebaseData) {
+      state.sharedMode = true;
+      state.sharedProvider = "firebase";
+      return firebaseData;
+    }
+  } catch (error) {
+    console.warn("Firebase indisponivel.", error);
+  }
+
+  try {
     const response = await fetch(API_URL, { cache: "no-store" });
     if (!response.ok) throw new Error("API indisponivel.");
     const serverData = sanitizeData(await response.json());
     state.sharedMode = true;
+    state.sharedProvider = "server";
 
     const serverIsEmpty = !serverData.rooms.length && !serverData.freezers.length && !serverData.contracts.length;
     const localHasData = localData.rooms.length || localData.freezers.length || localData.contracts.length;
@@ -512,6 +531,7 @@ async function loadData() {
     return serverData;
   } catch (error) {
     state.sharedMode = false;
+    state.sharedProvider = "local";
     window.alert("Nao foi possivel conectar ao armazenamento compartilhado. Os dados serao salvos apenas neste navegador enquanto o servidor estiver indisponivel.");
     return localData;
   }
@@ -538,12 +558,94 @@ async function persistData() {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(state.data));
   if (state.sharedMode) {
     try {
-      await saveServerData(state.data);
+      if (state.sharedProvider === "firebase") {
+        await saveFirebaseData(state.data);
+      } else {
+        await saveServerData(state.data);
+      }
     } catch (error) {
       window.alert("Nao foi possivel salvar no armazenamento compartilhado. Verifique a conexao e tente novamente.");
       throw error;
     }
   }
+}
+
+async function loadFirebaseData(localData) {
+  if (!hasFirebaseConfig()) {
+    return null;
+  }
+
+  const [{ initializeApp }, firestore] = await Promise.all([
+    import(`https://www.gstatic.com/firebasejs/${FIREBASE_SDK_VERSION}/firebase-app.js`),
+    import(`https://www.gstatic.com/firebasejs/${FIREBASE_SDK_VERSION}/firebase-firestore.js`)
+  ]);
+
+  const app = initializeApp(window.FIREBASE_CONFIG);
+  const db = firestore.getFirestore(app);
+  const docRef = firestore.doc(db, FIREBASE_COLLECTION, FIREBASE_DOC_ID);
+  firebaseStore = { firestore, docRef };
+
+  const snapshot = await firestore.getDoc(docRef);
+  if (snapshot.exists()) {
+    const data = sanitizeData(snapshot.data());
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+    subscribeFirebaseUpdates();
+    return data;
+  }
+
+  const seedData = await loadSeedData(localData);
+  await firestore.setDoc(docRef, seedData);
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(seedData));
+  subscribeFirebaseUpdates();
+  return seedData;
+}
+
+function subscribeFirebaseUpdates() {
+  if (!firebaseStore || unsubscribeFirebase) {
+    return;
+  }
+
+  unsubscribeFirebase = firebaseStore.firestore.onSnapshot(firebaseStore.docRef, (snapshot) => {
+    if (!snapshot.exists()) {
+      return;
+    }
+
+    state.data = sanitizeData(snapshot.data());
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(state.data));
+    render();
+  });
+}
+
+async function saveFirebaseData(data) {
+  if (!firebaseStore) {
+    throw new Error("Firebase nao inicializado.");
+  }
+  await firebaseStore.firestore.setDoc(firebaseStore.docRef, sanitizeData(data));
+}
+
+async function loadSeedData(localData) {
+  const localHasData = localData.rooms.length || localData.freezers.length || localData.contracts.length;
+  if (localHasData) {
+    return localData;
+  }
+
+  try {
+    const response = await fetch("./data.json", { cache: "no-store" });
+    if (!response.ok) throw new Error("Seed indisponivel.");
+    return sanitizeData(await response.json());
+  } catch (error) {
+    return { rooms: [], freezers: [], contracts: [] };
+  }
+}
+
+function hasFirebaseConfig() {
+  const config = window.FIREBASE_CONFIG || {};
+  return Boolean(
+    config.apiKey &&
+    config.projectId &&
+    !String(config.apiKey).includes("COLE_AQUI") &&
+    !String(config.projectId).includes("COLE_AQUI")
+  );
 }
 
 async function saveServerData(data) {
