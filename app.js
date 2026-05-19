@@ -277,8 +277,12 @@ function renderOpportunitySummary(activeContracts, availableCm) {
     .filter((c) => c.planKey === "quarter" || c.planKey === "half")
     .sort((a, b) => a.occupiedCm - b.occupiedCm);
 
-  // Custo em freezers completamente ociosos
-  const idleCost      = emptyFreezers.reduce((s, { freezer }) => s + freezer.monthlyCost, 0);
+  // Custo ocioso = custo fixo proporcional ao espaço vago de cada freezer
+  // Ex: freezer R$820 com 25% ocupado → R$615 de custo ocioso (75% vago)
+  const idleCost = allFreezers.reduce((s, { freezer, stats }) => {
+    const idleFraction = stats.occupancy < 100 ? (100 - stats.occupancy) / 100 : 0;
+    return s + freezer.monthlyCost * idleFraction;
+  }, 0);
   const freezerEquiv  = state.data.freezers.length ? availableCm / averageFreezerCapacity() : 0;
   const smallSpace    = smallContracts.reduce((s, c) => s + c.occupiedCm, 0);
   const focusLevel    = idleCost > 0 || emptyFreezers.length || underusedFreezers.length ? "warn" : "ok";
