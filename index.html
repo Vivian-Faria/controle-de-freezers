@@ -142,6 +142,12 @@
                 <input name="clientName" type="text" placeholder="Nome do cliente" required>
               </label>
               <label>
+                <span>Filtrar por sala</span>
+                <select id="contract-room-filter">
+                  <option value="all">Todas as salas</option>
+                </select>
+              </label>
+              <label>
                 <span>Freezer</span>
                 <select name="freezerId" required></select>
               </label>
@@ -274,14 +280,19 @@
                 </div>
                 <div class="two-cols">
                   <label>
-                    <span>Prateleiras</span>
+                    <span>Prateleiras totais</span>
                     <input name="shelves" type="number" min="1" step="1" value="6" required>
                   </label>
                   <label>
-                    <span>Custo fixo mensal</span>
+                    <span>Custo fixo mensal (aluguel base)</span>
                     <input name="monthlyCost" type="number" min="0" step="0.01" placeholder="0,00" required>
                   </label>
                 </div>
+                <label class="checkbox-label">
+                  <input name="clientOwned" type="checkbox">
+                  <span>Freezer pertence ao cliente <small>(não temos custo de aluguel)</small></span>
+                </label>
+                <p class="form-hint">⚙ Prateleiras inclusas no aluguel: 3. Extras cobradas a R$&nbsp;15,00/un automaticamente.</p>
                 <button class="button primary" type="submit">Salvar freezer</button>
               </form>
             </div>

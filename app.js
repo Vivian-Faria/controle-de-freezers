@@ -1,4 +1,6 @@
-const STORAGE_KEY = "freezerSpaceManager-v1";
+const STORAGE_KEY = "freezerSpaceManager-v2"; // bumped: new clientOwned field
+const SHELVES_INCLUDED = 3;   // prateleiras já inclusas no aluguel base
+const EXTRA_SHELF_COST = 15;  // R$/prateleira extra acima das inclusas
 const API_URL = "/api/data";
 const FIREBASE_SDK_VERSION = "12.7.0";
 const FIREBASE_COLLECTION = "sistemas";
@@ -79,6 +81,12 @@ function registerEvents() {
 
   elements.contractForm.elements.namedItem("planKey").addEventListener("change", applyPlanDefaults);
 
+  document.addEventListener("change", (event) => {
+    if (event.target.id === "contract-room-filter") {
+      updateContractFreezerSelect(event.target.value);
+    }
+  });
+
   elements.moveClose.addEventListener("click", (event) => {
     event.stopPropagation();
     closeMoveModal();
@@ -135,6 +143,7 @@ async function handleFreezerSubmit(event) {
   event.preventDefault();
   const form    = event.currentTarget;
   const id      = form.elements.namedItem("id").value || createId();
+  const clientOwned = form.elements.namedItem("clientOwned").checked;
   const freezer = {
     id,
     roomId:          getFormValue(form, "roomId"),
@@ -142,7 +151,8 @@ async function handleFreezerSubmit(event) {
     temperatureType: getFormValue(form, "temperatureType"),
     capacityCm:      getNumber(form, "capacityCm"),
     shelves:         getNumber(form, "shelves"),
-    monthlyCost:     getNumber(form, "monthlyCost")
+    monthlyCost:     clientOwned ? 0 : getNumber(form, "monthlyCost"),
+    clientOwned:     clientOwned
   };
   upsert(state.data.freezers, freezer);
   await persistData();
@@ -150,6 +160,7 @@ async function handleFreezerSubmit(event) {
   form.elements.namedItem("id").value         = "";
   form.elements.namedItem("capacityCm").value = 140;
   form.elements.namedItem("shelves").value    = 6;
+  form.elements.namedItem("clientOwned").checked = false;
   form.querySelector("button[type=submit]").textContent = "Salvar freezer";
   render();
 }
@@ -198,6 +209,21 @@ function render() {
   renderLists();
 }
 
+
+function updateContractFreezerSelect(roomId) {
+  const filtered = roomId === "all"
+    ? state.data.freezers
+    : state.data.freezers.filter(f => f.roomId === roomId);
+  const current = elements.contractForm.elements.namedItem("freezerId").value;
+  elements.contractForm.elements.namedItem("freezerId").innerHTML = filtered.map((f) => {
+    const room = getRoom(f.roomId);
+    const owned = f.clientOwned ? " ★" : "";
+    return `<option value="${f.id}">${escapeHtml(f.name)}${owned} — ${escapeHtml(room?.name || "Sem sala")}</option>`;
+  }).join("");
+  if (filtered.some(f => f.id === current)) {
+    elements.contractForm.elements.namedItem("freezerId").value = current;
+  }
+}
 function populateSelects() {
   const roomOptions = state.data.rooms
     .map((r) => `<option value="${r.id}">${escapeHtml(r.name)}</option>`)
@@ -209,11 +235,15 @@ function populateSelects() {
     ? state.filters.roomId : "all";
   state.filters.roomId = elements.roomFilter.value;
 
-  const freezerOptions = state.data.freezers.map((f) => {
-    const room = getRoom(f.roomId);
-    return `<option value="${f.id}">${escapeHtml(f.name)} - ${escapeHtml(room?.name || "Sem sala")}</option>`;
-  }).join("");
-  elements.contractForm.elements.namedItem("freezerId").innerHTML = freezerOptions;
+  // Populate room filter in contract form
+  const contractRoomFilter = document.querySelector("#contract-room-filter");
+  if (contractRoomFilter) {
+    const currentRoomFilter = contractRoomFilter.value || "all";
+    contractRoomFilter.innerHTML = `<option value="all">Todas as salas</option>` +
+      state.data.rooms.map(r => `<option value="${r.id}">${escapeHtml(r.name)}</option>`).join("");
+    contractRoomFilter.value = state.data.rooms.some(r => r.id === currentRoomFilter) ? currentRoomFilter : "all";
+    updateContractFreezerSelect(contractRoomFilter.value);
+  }
 
   elements.contractForm.elements.namedItem("planKey").innerHTML = Object.entries(plans)
     .map(([key, plan]) => `<option value="${key}">${plan.label} – ${formatCurrency(plan.defaultFee)}</option>`)
@@ -225,8 +255,8 @@ function populateSelects() {
 function renderMetrics() {
   const activeContracts = state.data.contracts.filter((c) => c.status === "active");
   const revenue         = activeContracts.reduce((s, c) => s + c.monthlyFee, 0);
-  // CORREÇÃO: custo é a soma dos custos fixos de cada freezer, independente do nº de clientes
-  const cost            = state.data.freezers.reduce((s, f) => s + f.monthlyCost, 0);
+  // Custo total = aluguel base + prateleiras extras de cada freezer
+  const cost            = state.data.freezers.reduce((s, f) => s + getTotalFreezerCost(f), 0);
   const totalCapacity   = state.data.freezers.reduce((s, f) => s + f.capacityCm, 0);
   const occupied        = activeContracts.reduce((s, c) => s + c.occupiedCm, 0);
   const available       = Math.max(0, totalCapacity - occupied);
@@ -280,8 +310,9 @@ function renderOpportunitySummary(activeContracts, availableCm) {
   // Custo ocioso = custo fixo proporcional ao espaço vago de cada freezer
   // Ex: freezer R$820 com 25% ocupado → R$615 de custo ocioso (75% vago)
   const idleCost = allFreezers.reduce((s, { freezer, stats }) => {
+    if (freezer.clientOwned) return s; // sem custo, não conta como ocioso
     const idleFraction = stats.occupancy < 100 ? (100 - stats.occupancy) / 100 : 0;
-    return s + freezer.monthlyCost * idleFraction;
+    return s + getTotalFreezerCost(freezer) * idleFraction;
   }, 0);
   const freezerEquiv  = state.data.freezers.length ? availableCm / averageFreezerCapacity() : 0;
   const smallSpace    = smallContracts.reduce((s, c) => s + c.occupiedCm, 0);
@@ -424,7 +455,7 @@ function renderFreezers() {
       <article class="freezer-card ${statusCls}" data-freezer-id="${freezer.id}">
         <div class="freezer-head">
           <div>
-            <h3>${escapeHtml(freezer.name)}</h3>
+            <h3>${escapeHtml(freezer.name)} ${freezer.clientOwned ? '<span class="owned-badge">Do cliente</span>' : ""}</h3>
             <span class="muted">${escapeHtml(room?.name || "Sem sala")} · ${escapeHtml(freezer.temperatureType)}</span>
           </div>
           <span class="status-pill ${pillCls}">${stats.availableCm} cm livres</span>
@@ -437,7 +468,13 @@ function renderFreezers() {
         <div class="freezer-stats">
           <div class="stat-box"><span>Ocupação</span><strong>${stats.occupancy.toFixed(1)}%</strong></div>
           <div class="stat-box"><span>Receita</span><strong>${formatCurrency(stats.revenue)}</strong></div>
-          <div class="stat-box"><span>Custo fixo</span><strong>${formatCurrency(freezer.monthlyCost)}</strong></div>
+          <div class="stat-box">
+            <span>Custo ${freezer.clientOwned ? "(cliente)" : "fixo"}</span>
+            <strong>${freezer.clientOwned ? "R$ 0,00" : formatCurrency(freezer.monthlyCost)}</strong>
+            ${!freezer.clientOwned && getExtraShelfCost(freezer) > 0
+              ? `<span class="shelf-cost-note">+${formatCurrency(getExtraShelfCost(freezer))} (${Math.max(0,freezer.shelves-SHELVES_INCLUDED)} prat. extra)</span>`
+              : freezer.clientOwned ? '<span class="shelf-cost-note" style="color:var(--accent-2)">freezer do cliente</span>' : ""}
+          </div>
           <div class="stat-box"><span>Resultado</span><strong class="${stats.profit >= 0 ? 'positive' : 'negative'}">${formatCurrency(stats.profit)}</strong></div>
         </div>
 
@@ -491,7 +528,13 @@ function renderFinanceTable() {
           <span>${escapeHtml(getRoom(freezer.roomId)?.name || "Sem sala")} · ${stats.clientCount} cliente(s)</span>
         </div>
         <div><strong>${formatCurrency(stats.revenue)}</strong><span>Faturamento</span></div>
-        <div><strong>${formatCurrency(freezer.monthlyCost)}</strong><span>Custo fixo (único)</span></div>
+        <div>
+          <strong>${freezer.clientOwned ? "R$ 0,00" : formatCurrency(getTotalFreezerCost(freezer))}</strong>
+          <span>${freezer.clientOwned ? "Freezer do cliente" : "Custo total"}</span>
+          ${!freezer.clientOwned && getExtraShelfCost(freezer) > 0
+            ? `<small style="color:var(--warn);font-size:.7rem">Base ${formatCurrency(freezer.monthlyCost)} + ${formatCurrency(getExtraShelfCost(freezer))} prat. (${Math.max(0,freezer.shelves-SHELVES_INCLUDED)}×R$15)</small>`
+            : ""}
+        </div>
         <div><strong class="${stats.profit >= 0 ? 'positive' : 'negative'}">${formatCurrency(stats.profit)}</strong><span>Resultado</span></div>
         <div><strong>${margin.toFixed(1)}%</strong><span>Margem</span></div>
         <div><strong>${formatCurrency(costPerCm)}</strong><span>Custo/cm ocupado</span></div>
@@ -524,7 +567,7 @@ function renderContracts() {
         <div><strong>${contract.occupiedCm} cm</strong><span>${contract.shelvesUsed} prateleira(s)</span></div>
         <div><strong>${formatCurrency(contract.monthlyFee)}</strong><span>Mensalidade</span></div>
         <div>
-          <strong>${escapeHtml(freezer?.name || "Sem freezer")}</strong>
+          <strong>${escapeHtml(freezer?.name || "Sem freezer")} ${freezer?.clientOwned ? '<span class="owned-badge">Do cliente</span>' : ""}</strong>
           <span>${escapeHtml(room?.name || "Sem sala")}</span>
         </div>
         <div class="row-actions">
@@ -567,8 +610,11 @@ function renderSetupLists() {
         return `
           <article class="table-row">
             <div><strong>${escapeHtml(freezer.name)}</strong><span>${escapeHtml(room?.name || "Sem sala")} · ${escapeHtml(freezer.temperatureType)}</span></div>
-            <div><strong>${freezer.capacityCm} cm</strong><span>${freezer.shelves} prateleiras</span></div>
-            <div><strong>${formatCurrency(freezer.monthlyCost)}</strong><span>Custo fixo/mês</span></div>
+            <div><strong>${freezer.capacityCm} cm</strong><span>${freezer.shelves} prateleira(s)${!freezer.clientOwned && freezer.shelves > SHELVES_INCLUDED ? ` <span style="color:var(--warn)">(${freezer.shelves-SHELVES_INCLUDED} extra${freezer.shelves-SHELVES_INCLUDED>1?"s":""})</span>` : ""}</span></div>
+            <div>
+              <strong>${freezer.clientOwned ? '<span class="owned-badge">Do cliente</span>' : formatCurrency(getTotalFreezerCost(freezer))}</strong>
+              <span>${freezer.clientOwned ? "Sem custo" : (getExtraShelfCost(freezer)>0 ? `Base ${formatCurrency(freezer.monthlyCost)} + ${formatCurrency(getExtraShelfCost(freezer))} extras` : "Custo fixo/mês")}</span>
+            </div>
             <div class="row-actions">
               <button class="button secondary" type="button" data-action="edit-freezer"   data-id="${freezer.id}">Editar</button>
               <button class="button danger"    type="button" data-action="delete-freezer" data-id="${freezer.id}">Remover</button>
@@ -721,6 +767,19 @@ function applyPlanDefaults() {
 
 // ─── STATS ───────────────────────────────────────────────────────────────────
 
+
+// Custo de prateleiras extras: R$15 por prateleira acima das 3 inclusas no aluguel
+function getExtraShelfCost(freezer) {
+  if (freezer.clientOwned) return 0; // freezer do cliente: sem custo nosso
+  const extras = Math.max(0, (freezer.shelves || 0) - SHELVES_INCLUDED);
+  return extras * EXTRA_SHELF_COST;
+}
+
+// Custo total do freezer = aluguel base + prateleiras extras
+function getTotalFreezerCost(freezer) {
+  if (freezer.clientOwned) return 0;
+  return (freezer.monthlyCost || 0) + getExtraShelfCost(freezer);
+}
 /**
  * getFreezerStats — calcula métricas do freezer.
  * LÓGICA DE CUSTO: o monthlyCost é fixo do equipamento.
@@ -741,8 +800,8 @@ function getFreezerStats(freezer) {
     revenue,
     availableCm,
     occupancy,
-    // CORREÇÃO: custo fixo não é multiplicado pelo número de clientes
-    profit: revenue - freezer.monthlyCost
+    // Custo total = aluguel base + prateleiras extras (R$15/un acima de 3)
+    profit: revenue - getTotalFreezerCost(freezer)
   };
 }
 
@@ -780,6 +839,7 @@ function editFreezer(id) {
   if (!freezer) return;
   showPage("setup");
   setFormValues(elements.freezerForm, freezer);
+  elements.freezerForm.elements.namedItem("clientOwned").checked = !!freezer.clientOwned;
   elements.freezerForm.querySelector("button[type=submit]").textContent = "Atualizar freezer";
   elements.freezerForm.scrollIntoView({ behavior: "smooth", block: "start" });
 }
@@ -898,7 +958,7 @@ function loadLocalData() {
 function sanitizeData(data) {
   return {
     rooms:     Array.isArray(data.rooms)     ? data.rooms     : [],
-    freezers:  Array.isArray(data.freezers)  ? data.freezers  : [],
+    freezers:  Array.isArray(data.freezers)  ? data.freezers.map(f => ({ ...f, clientOwned: !!f.clientOwned }))  : [],
     contracts: Array.isArray(data.contracts) ? data.contracts : []
   };
 }
