@@ -927,13 +927,14 @@ function renderChartsDashboard() {
     return "";
   }
 
-  // A bar where the label is INSIDE or to the right but constrained
+  // Bar fully contained — fill is absolutely positioned inside a flex-1 track
   function bar(pct, color, label, isNegative) {
     const clampedPct = Math.min(100, Math.max(0, pct));
     const barColor   = isNegative ? "#ef4444" : color;
-    return `
-      <div class="cbar-track">
-        <div class="cbar-fill" style="width:${clampedPct}%;background:${barColor}"></div>
+    return `<div class="cbar-track">
+        <div class="cbar-bar-area">
+          <div class="cbar-fill" style="width:${clampedPct}%;background:${barColor}"></div>
+        </div>
         <span class="cbar-value">${label}</span>
       </div>`;
   }
@@ -1041,14 +1042,16 @@ function applyPlanDefaults() {
 
 // Custo de prateleiras extras: R$15 por prateleira acima das 3 inclusas no aluguel
 function getExtraShelfCost(freezer) {
-  if (freezer.clientOwned) return 0; // freezer do cliente: sem custo nosso
+  // Só cobra extra se for ALUGADO — cliente próprio e Órion não pagam por prateleiras
+  if (freezer.clientOwned || freezer.orionOwned) return 0;
   const extras = Math.max(0, (freezer.shelves || 0) - SHELVES_INCLUDED);
   return extras * EXTRA_SHELF_COST;
 }
 
 // Custo total do freezer = aluguel base + prateleiras extras
 function getTotalFreezerCost(freezer) {
-  if (freezer.clientOwned) return 0;
+  // Freezer do cliente ou da Órion: sem custo de aluguel nem de prateleiras
+  if (freezer.clientOwned || freezer.orionOwned) return 0;
   return (freezer.monthlyCost || 0) + getExtraShelfCost(freezer);
 }
 /**
