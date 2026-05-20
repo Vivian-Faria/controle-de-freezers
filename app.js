@@ -85,6 +85,9 @@ function registerEvents() {
     if (event.target.id === "contract-room-filter") {
       updateContractFreezerSelect(event.target.value);
     }
+    if (event.target.name === "ownership" && event.target.closest("#freezer-form")) {
+      toggleMonthlyCostField(elements.freezerForm);
+    }
   });
 
   elements.moveClose.addEventListener("click", (event) => {
@@ -143,7 +146,10 @@ async function handleFreezerSubmit(event) {
   event.preventDefault();
   const form    = event.currentTarget;
   const id      = form.elements.namedItem("id").value || createId();
-  const clientOwned = form.elements.namedItem("clientOwned").checked;
+  const ownershipVal = getFormValue(form, "ownership");
+  const clientOwned  = ownershipVal === "client";
+  const orionOwned   = ownershipVal === "orion";
+  // If client-owned, no cost. If orion-owned or rented, use the entered cost.
   const freezer = {
     id,
     roomId:          getFormValue(form, "roomId"),
@@ -152,7 +158,8 @@ async function handleFreezerSubmit(event) {
     capacityCm:      getNumber(form, "capacityCm"),
     shelves:         getNumber(form, "shelves"),
     monthlyCost:     clientOwned ? 0 : getNumber(form, "monthlyCost"),
-    clientOwned:     clientOwned
+    clientOwned,
+    orionOwned
   };
   upsert(state.data.freezers, freezer);
   await persistData();
@@ -160,7 +167,10 @@ async function handleFreezerSubmit(event) {
   form.elements.namedItem("id").value         = "";
   form.elements.namedItem("capacityCm").value = 140;
   form.elements.namedItem("shelves").value    = 6;
-  form.elements.namedItem("clientOwned").checked = false;
+  // reset ownership radio
+  const ownershipRented = form.querySelector('input[name="ownership"][value="rented"]');
+  if (ownershipRented) ownershipRented.checked = true;
+  toggleMonthlyCostField(form);
   form.querySelector("button[type=submit]").textContent = "Salvar freezer";
   render();
 }
@@ -210,6 +220,20 @@ function render() {
 }
 
 
+
+function toggleMonthlyCostField(form) {
+  const val = getFormValue(form, "ownership");
+  const costLabel = form.querySelector(".cost-field-label");
+  if (!costLabel) return;
+  if (val === "client") {
+    costLabel.style.opacity = ".35";
+    costLabel.style.pointerEvents = "none";
+    form.elements.namedItem("monthlyCost").value = "0";
+  } else {
+    costLabel.style.opacity = "1";
+    costLabel.style.pointerEvents = "auto";
+  }
+}
 function updateContractFreezerSelect(roomId) {
   const filtered = roomId === "all"
     ? state.data.freezers
@@ -281,6 +305,7 @@ function renderLists() {
   renderFinanceTable();
   renderContracts();
   renderSetupLists();
+  renderChartsDashboard();
 }
 
 function showPage(pageName) {
@@ -437,7 +462,7 @@ function renderRecommendations(emptyFreezers, underusedFreezers, consolidationPl
   consolidationPlans.forEach((plan) => {
     const { sourceFreezer, moves, savingPerMonth, clientCount } = plan;
     const moveList = moves.map(m =>
-      `${escapeHtml(m.contract.clientName)} → ${escapeHtml(m.targetFreezer.name)}`
+      `${escapeHtml(m.contract.clientName)} → ${escapeHtml(getRoom(m.targetFreezer.roomId)?.name || "")} ${escapeHtml(m.targetFreezer.name)}`
     ).join(", ");
     const clientNames = moves.map(m => escapeHtml(m.contract.clientName)).join(" e ");
     // First contract to move — button opens move modal
@@ -606,7 +631,7 @@ function renderFinanceTable() {
     return `
       <article class="table-row finance-row">
         <div class="finance-name">
-          <strong>${escapeHtml(freezer.name)}</strong>
+          <strong>${escapeHtml(freezer.name)} ${freezer.clientOwned ? '<span class="owned-badge">Do cliente</span>' : freezer.orionOwned ? '<span class="owned-badge" style="background:rgba(99,102,241,.15);color:#818cf8;border-color:rgba(99,102,241,.3)">Órion</span>' : ""}</strong>
           <span>${escapeHtml(getRoom(freezer.roomId)?.name || "Sem sala")} · ${stats.clientCount} cliente(s)</span>
         </div>
         <div><strong>${formatCurrency(stats.revenue)}</strong><span>Faturamento</span></div>
@@ -694,8 +719,14 @@ function renderSetupLists() {
             <div><strong>${escapeHtml(freezer.name)}</strong><span>${escapeHtml(room?.name || "Sem sala")} · ${escapeHtml(freezer.temperatureType)}</span></div>
             <div><strong>${freezer.capacityCm} cm</strong><span>${freezer.shelves} prateleira(s)${!freezer.clientOwned && freezer.shelves > SHELVES_INCLUDED ? ` <span style="color:var(--warn)">(${freezer.shelves-SHELVES_INCLUDED} extra${freezer.shelves-SHELVES_INCLUDED>1?"s":""})</span>` : ""}</span></div>
             <div>
-              <strong>${freezer.clientOwned ? '<span class="owned-badge">Do cliente</span>' : formatCurrency(getTotalFreezerCost(freezer))}</strong>
-              <span>${freezer.clientOwned ? "Sem custo" : (getExtraShelfCost(freezer)>0 ? `Base ${formatCurrency(freezer.monthlyCost)} + ${formatCurrency(getExtraShelfCost(freezer))} extras` : "Custo fixo/mês")}</span>
+              <strong>${freezer.clientOwned
+                ? '<span class="owned-badge">Do cliente</span>'
+                : freezer.orionOwned
+                  ? '<span class="owned-badge" style="background:rgba(99,102,241,.15);color:#818cf8;border-color:rgba(99,102,241,.3)">Órion</span>'
+                  : formatCurrency(getTotalFreezerCost(freezer))}</strong>
+              <span>${freezer.clientOwned ? "Sem custo nosso"
+                : freezer.orionOwned ? "Ativo da empresa"
+                : (getExtraShelfCost(freezer)>0 ? `Base ${formatCurrency(freezer.monthlyCost)} + ${formatCurrency(getExtraShelfCost(freezer))} extras` : "Custo fixo/mês")}</span>
             </div>
             <div class="row-actions">
               <button class="button secondary" type="button" data-action="edit-freezer"   data-id="${freezer.id}">Editar</button>
@@ -801,6 +832,142 @@ async function moveContract(contractId, targetFreezerId) {
   }
 }
 
+
+// ─── CHARTS DASHBOARD ────────────────────────────────────────────────────────
+
+function renderChartsDashboard() {
+  const chartPage = document.querySelector("#page-charts");
+  if (!chartPage) return;
+
+  const freezers = state.data.freezers;
+  if (!freezers.length) {
+    chartPage.querySelector("#charts-container").innerHTML =
+      `<div class="empty-state"><strong>Nenhum freezer cadastrado</strong><p>Cadastre freezers para ver os gráficos.</p></div>`;
+    return;
+  }
+
+  const data = freezers.map(f => {
+    const stats = getFreezerStats(f);
+    const room  = getRoom(f.roomId);
+    return {
+      name:         f.name,
+      roomName:     room?.name || "Sem sala",
+      revenue:      stats.revenue,
+      cost:         getTotalFreezerCost(f),
+      profit:       stats.profit,
+      margin:       stats.revenue > 0 ? (stats.profit / stats.revenue) * 100 : 0,
+      occupancy:    stats.occupancy,
+      occupiedCm:   stats.occupiedCm,
+      availableCm:  stats.availableCm,
+      revenuePerCm: stats.occupiedCm > 0 ? stats.revenue / stats.occupiedCm : 0,
+      costPerCm:    stats.occupiedCm > 0 ? getTotalFreezerCost(f) / stats.occupiedCm : 0,
+      clientCount:  stats.clientCount,
+      clientOwned:  f.clientOwned,
+      orionOwned:   f.orionOwned,
+    };
+  }).sort((a, b) => b.revenue - a.revenue);
+
+  const colors = {
+    revenue:  "#3b82f6",
+    cost:     "#ef4444",
+    profit:   "#22c55e",
+    margin:   "#f59e0b",
+    occupancy:"#06b6d4",
+    rpc:      "#a78bfa",
+  };
+
+  const maxRevenue    = Math.max(...data.map(d => d.revenue), 1);
+  const maxProfit     = Math.max(...data.map(d => Math.abs(d.profit)), 1);
+  const maxRpc        = Math.max(...data.map(d => d.revenuePerCm), 1);
+  const maxOcc        = 100;
+
+  function ownerTag(d) {
+    if (d.clientOwned) return `<span class="owned-badge">Do cliente</span>`;
+    if (d.orionOwned)  return `<span class="owned-badge" style="background:rgba(99,102,241,.15);color:#818cf8;border-color:rgba(99,102,241,.3)">Órion</span>`;
+    return "";
+  }
+
+  function bar(value, max, color, label) {
+    const pct = max > 0 ? Math.min(100, (value / max) * 100) : 0;
+    return `<div class="chart-bar-wrap" title="${label}">
+      <div class="chart-bar" style="width:${pct}%;background:${color}"></div>
+      <span class="chart-bar-label">${label}</span>
+    </div>`;
+  }
+
+  // Sort variants
+  const byRevenue   = [...data].sort((a,b) => b.revenue - a.revenue);
+  const byProfit    = [...data].sort((a,b) => b.profit - a.profit);
+  const byMargin    = [...data].sort((a,b) => b.margin - a.margin);
+  const byRpc       = [...data].sort((a,b) => b.revenuePerCm - a.revenuePerCm);
+  const byOccupancy = [...data].sort((a,b) => b.occupancy - a.occupancy);
+
+  function chartBlock(title, eyebrow, sorted, valueFn, labelFn, color, maxVal) {
+    return `
+      <article class="chart-card">
+        <p class="eyebrow">${eyebrow}</p>
+        <h3>${title}</h3>
+        <div class="chart-rows">
+          ${sorted.map(d => `
+            <div class="chart-row">
+              <div class="chart-row-name">
+                <strong>${escapeHtml(d.name)}</strong>
+                <span>${escapeHtml(d.roomName)} ${ownerTag(d)}</span>
+              </div>
+              ${bar(Math.abs(valueFn(d)), maxVal, valueFn(d) < 0 ? "#ef4444" : color, labelFn(d))}
+            </div>
+          `).join("")}
+        </div>
+      </article>`;
+  }
+
+  // Summary KPIs
+  const totalRevenue = data.reduce((s,d) => s+d.revenue, 0);
+  const totalCost    = data.reduce((s,d) => s+d.cost, 0);
+  const totalProfit  = totalRevenue - totalCost;
+  const avgOccupancy = data.length ? data.reduce((s,d) => s+d.occupancy, 0) / data.length : 0;
+  const topFreezer   = byRevenue[0];
+  const worstFreezer = [...data].sort((a,b) => a.profit - b.profit)[0];
+
+  const kpiHtml = `
+    <div class="chart-kpis">
+      <div class="chart-kpi">
+        <span>Faturamento total</span>
+        <strong>${formatCurrency(totalRevenue)}</strong>
+      </div>
+      <div class="chart-kpi">
+        <span>Custo total</span>
+        <strong style="color:var(--bad)">${formatCurrency(totalCost)}</strong>
+      </div>
+      <div class="chart-kpi">
+        <span>Resultado</span>
+        <strong class="${totalProfit>=0?"positive":"negative"}">${formatCurrency(totalProfit)}</strong>
+      </div>
+      <div class="chart-kpi">
+        <span>Ocupação média</span>
+        <strong style="color:var(--accent-2)">${avgOccupancy.toFixed(1)}%</strong>
+      </div>
+      <div class="chart-kpi">
+        <span>Maior faturamento</span>
+        <strong>${topFreezer ? escapeHtml(topFreezer.name) : "—"}</strong>
+        <small>${topFreezer ? formatCurrency(topFreezer.revenue) : ""}</small>
+      </div>
+      <div class="chart-kpi ${worstFreezer?.profit < 0 ? "kpi-warn" : ""}">
+        <span>Pior resultado</span>
+        <strong>${worstFreezer ? escapeHtml(worstFreezer.name) : "—"}</strong>
+        <small class="${worstFreezer?.profit<0?"negative":""}">${worstFreezer ? formatCurrency(worstFreezer.profit) : ""}</small>
+      </div>
+    </div>`;
+
+  chartPage.querySelector("#charts-container").innerHTML = kpiHtml +
+    `<div class="charts-grid">` +
+    chartBlock("Faturamento por freezer", "Receita",   byRevenue,   d=>d.revenue,      d=>formatCurrency(d.revenue),          colors.revenue,  maxRevenue) +
+    chartBlock("Resultado por freezer",   "Lucro/Prej",byProfit,    d=>d.profit,       d=>formatCurrency(d.profit),           colors.profit,   maxProfit) +
+    chartBlock("Margem por freezer",      "Margem %",  byMargin,    d=>d.margin,       d=>`${d.margin.toFixed(1)}%`,          colors.margin,   100) +
+    chartBlock("Receita por cm ocupado",  "Eficiência",byRpc,       d=>d.revenuePerCm, d=>formatCurrency(d.revenuePerCm)+"/cm", colors.rpc,    maxRpc) +
+    chartBlock("Ocupação",                "Uso do espaço",byOccupancy,d=>d.occupancy,  d=>`${d.occupancy.toFixed(1)}%`,       colors.occupancy,maxOcc) +
+    `</div>`;
+}
 // ─── DRAG & DROP ─────────────────────────────────────────────────────────────
 
 function handleDragStart(event) {
@@ -921,7 +1088,11 @@ function editFreezer(id) {
   if (!freezer) return;
   showPage("setup");
   setFormValues(elements.freezerForm, freezer);
-  elements.freezerForm.elements.namedItem("clientOwned").checked = !!freezer.clientOwned;
+  // set ownership radio
+  const owVal = freezer.clientOwned ? "client" : (freezer.orionOwned ? "orion" : "rented");
+  const owRadio = elements.freezerForm.querySelector(`input[name="ownership"][value="${owVal}"]`);
+  if (owRadio) owRadio.checked = true;
+  toggleMonthlyCostField(elements.freezerForm);
   elements.freezerForm.querySelector("button[type=submit]").textContent = "Atualizar freezer";
   elements.freezerForm.scrollIntoView({ behavior: "smooth", block: "start" });
 }
@@ -1040,7 +1211,7 @@ function loadLocalData() {
 function sanitizeData(data) {
   return {
     rooms:     Array.isArray(data.rooms)     ? data.rooms     : [],
-    freezers:  Array.isArray(data.freezers)  ? data.freezers.map(f => ({ ...f, clientOwned: !!f.clientOwned }))  : [],
+    freezers:  Array.isArray(data.freezers)  ? data.freezers.map(f => ({ ...f, clientOwned: !!f.clientOwned, orionOwned: !!f.orionOwned }))  : [],
     contracts: Array.isArray(data.contracts) ? data.contracts : []
   };
 }

@@ -700,3 +700,131 @@ select option { background: var(--bg-3); }
   color: var(--warn);
   margin-top: .15rem;
 }
+
+/* ─── OWNERSHIP RADIO GROUP ──────────────────────────────────────────────── */
+.ownership-group {
+  display: flex;
+  flex-direction: column;
+  gap: .5rem;
+}
+.ownership-label {
+  font-size: .75rem;
+  font-weight: 700;
+  letter-spacing: .04em;
+  color: var(--text-2);
+  text-transform: uppercase;
+}
+.ownership-radios {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: .5rem;
+}
+.radio-option {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: .3rem;
+  cursor: pointer;
+  background: var(--bg-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: .6rem .5rem;
+  text-align: center;
+  transition: border-color .15s, background .15s;
+}
+.radio-option:has(input:checked) {
+  border-color: var(--accent);
+  background: var(--accent-glow);
+}
+.radio-option input[type="radio"] {
+  width: auto;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+.radio-option > span       { font-size: .82rem; font-weight: 600; color: var(--text); }
+.radio-option > span small { display: block; font-size: .68rem; color: var(--text-3); margin-top: .1rem; }
+
+/* ─── CHARTS PAGE ────────────────────────────────────────────────────────── */
+.charts-container { padding: 1.75rem 2rem; display: flex; flex-direction: column; gap: 1.5rem; }
+
+.chart-kpis {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 1px;
+  background: var(--border);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+  margin-bottom: .5rem;
+}
+.chart-kpi {
+  background: var(--bg-2);
+  padding: 1.1rem 1.4rem;
+  display: flex;
+  flex-direction: column;
+  gap: .2rem;
+}
+.chart-kpi > span  { font-size: .72rem; font-weight: 600; text-transform: uppercase; letter-spacing: .06em; color: var(--text-2); }
+.chart-kpi > strong{ font-size: 1.25rem; font-weight: 800; font-family: var(--font-mono); }
+.chart-kpi > small { font-size: .75rem; color: var(--text-3); }
+.chart-kpi.kpi-warn { background: rgba(239,68,68,.06); }
+
+.charts-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+  gap: 1rem;
+}
+
+.chart-card {
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 1.25rem 1.5rem;
+}
+.chart-card h3   { font-size: .95rem; font-weight: 700; margin-bottom: 1rem; }
+.chart-card .eyebrow { margin-bottom: .25rem; }
+
+.chart-rows { display: flex; flex-direction: column; gap: .65rem; }
+
+.chart-row {
+  display: flex;
+  align-items: center;
+  gap: .75rem;
+}
+.chart-row-name {
+  min-width: 100px;
+  max-width: 130px;
+  display: flex;
+  flex-direction: column;
+  gap: .1rem;
+  flex-shrink: 0;
+}
+.chart-row-name strong { font-size: .8rem; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.chart-row-name span   { font-size: .68rem; color: var(--text-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: flex; align-items: center; gap: .25rem; }
+
+.chart-bar-wrap {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: .6rem;
+  min-width: 0;
+}
+.chart-bar {
+  height: 20px;
+  border-radius: 4px;
+  min-width: 3px;
+  transition: width .4s ease;
+  flex-shrink: 0;
+}
+.chart-bar-label {
+  font-size: .75rem;
+  font-family: var(--font-mono);
+  color: var(--text-2);
+  white-space: nowrap;
+}
+
+@media (max-width: 900px) {
+  .charts-grid        { grid-template-columns: 1fr; }
+  .charts-container   { padding: 1.25rem; }
+  .ownership-radios   { grid-template-columns: 1fr; }
+}
