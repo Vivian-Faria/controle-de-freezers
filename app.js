@@ -297,50 +297,192 @@ function showPage(pageName) {
 function renderOpportunitySummary(activeContracts, availableCm) {
   const allFreezers = state.data.freezers.map((f) => ({ freezer: f, stats: getFreezerStats(f) }));
 
-  const emptyFreezers    = allFreezers.filter(({ stats }) => stats.occupancy === 0)
-    .sort((a, b) => b.freezer.monthlyCost - a.freezer.monthlyCost);
-  const underusedFreezers = allFreezers.filter(({ stats }) => stats.occupancy > 0 && stats.occupancy < 50)
+  const emptyFreezers     = allFreezers.filter(({ stats, freezer }) => stats.occupancy === 0 && !freezer.clientOwned)
+    .sort((a, b) => getTotalFreezerCost(b.freezer) - getTotalFreezerCost(a.freezer));
+  const underusedFreezers = allFreezers.filter(({ stats, freezer }) => stats.occupancy > 0 && stats.occupancy < 50 && !freezer.clientOwned)
     .sort((a, b) => b.stats.availableCm - a.stats.availableCm);
-  const freezersWithSpace = allFreezers.filter(({ stats }) => stats.availableCm >= 35)
-    .sort((a, b) => b.stats.availableCm - a.stats.availableCm);
-  const smallContracts    = activeContracts
-    .filter((c) => c.planKey === "quarter" || c.planKey === "half")
-    .sort((a, b) => a.occupiedCm - b.occupiedCm);
 
-  // Custo ocioso = custo fixo proporcional ao espaço vago de cada freezer
-  // Ex: freezer R$820 com 25% ocupado → R$615 de custo ocioso (75% vago)
+  // Custo ocioso = custo fixo proporcional ao espaço vago de cada freezer alugado
   const idleCost = allFreezers.reduce((s, { freezer, stats }) => {
-    if (freezer.clientOwned) return s; // sem custo, não conta como ocioso
+    if (freezer.clientOwned) return s;
     const idleFraction = stats.occupancy < 100 ? (100 - stats.occupancy) / 100 : 0;
     return s + getTotalFreezerCost(freezer) * idleFraction;
   }, 0);
-  const freezerEquiv  = state.data.freezers.length ? availableCm / averageFreezerCapacity() : 0;
-  const smallSpace    = smallContracts.reduce((s, c) => s + c.occupiedCm, 0);
-  const focusLevel    = idleCost > 0 || emptyFreezers.length || underusedFreezers.length ? "warn" : "ok";
+
+  // Consolidation scenarios: which freezers could be emptied by moving clients?
+  const consolidationPlans = buildConsolidationPlans(allFreezers, activeContracts);
+  const bestPlans = consolidationPlans.slice(0, 3);
+
+  const freezerEquiv = state.data.freezers.length ? availableCm / averageFreezerCapacity() : 0;
+  const focusLevel   = idleCost > 0 || emptyFreezers.length || underusedFreezers.length || bestPlans.length ? "warn" : "ok";
+
+  // "Small clients" metric now reflects actual consolidation potential
+  const consolidatableContracts = [...new Set(bestPlans.flatMap(p => p.moves.map(m => m.contract.id)))];
+  const consolidatableCost = bestPlans.reduce((s, p) => s + p.savingPerMonth, 0);
 
   elements.metricEmptySpace.textContent      = `${availableCm} cm`;
   elements.metricEmptyEquivalent.textContent = `Equivale a ${freezerEquiv.toFixed(1)} freezer(s) de capacidade média`;
   elements.metricIdleCost.textContent        = formatCurrency(idleCost);
   elements.metricIdleCount.textContent       = `${emptyFreezers.length} vazio(s) + ${underusedFreezers.length} abaixo de 50%`;
-  elements.metricSmallClients.textContent    = String(smallContracts.length);
-  elements.metricSmallSpace.textContent      = `${smallSpace} cm em planos 1/4 e 1/2`;
-  elements.focusCaption.className            = `status-pill ${focusLevel}`;
-  elements.focusCaption.textContent          = focusLevel === "warn"
+
+  // Show consolidation potential, not raw count of small contracts
+  elements.metricSmallClients.textContent = bestPlans.length > 0
+    ? `${bestPlans.length} plano(s)`
+    : "—";
+  elements.metricSmallSpace.textContent = bestPlans.length > 0
+    ? `Economia potencial: ${formatCurrency(consolidatableCost)}/mês`
+    : "Sem reorganização viável no momento";
+
+  elements.focusCaption.className  = `status-pill ${focusLevel}`;
+  elements.focusCaption.textContent = focusLevel === "warn"
     ? "Há oportunidades de consolidação"
     : "Ocupação bem distribuída";
 
-  const recommendations = buildRecommendations({ emptyFreezers, underusedFreezers, freezersWithSpace, smallContracts });
+  renderRecommendations(emptyFreezers, underusedFreezers, bestPlans);
+}
 
-  if (!recommendations.length) {
+/**
+ * buildConsolidationPlans
+ * Para cada freezer alugado com custo, tenta montar um plano real:
+ *   "Se movermos estes clientes para outros freezers com espaço,
+ *    este freezer pode ser devolvido, economizando R$X/mês"
+ * Só gera plano se TODOS os clientes do freezer têm destino viável.
+ */
+function buildConsolidationPlans(allFreezers, activeContracts) {
+  const plans = [];
+
+  // Candidatos a esvaziar: freezers alugados com baixa ocupação
+  const candidates = allFreezers
+    .filter(({ freezer, stats }) => !freezer.clientOwned && stats.occupancy < 80 && stats.clientCount > 0)
+    .sort((a, b) => getTotalFreezerCost(b.freezer) - getTotalFreezerCost(a.freezer)); // maior custo primeiro
+
+  for (const { freezer, stats } of candidates) {
+    const clientsToMove = activeContracts.filter(c => c.freezerId === freezer.id && c.status === "active");
+    if (!clientsToMove.length) continue;
+
+    // Simulate: can ALL clients fit elsewhere?
+    // We track a "virtual occupancy" map to not double-book space
+    const virtualSpace = {}; // freezerId -> cm used after moves
+    allFreezers.forEach(({ freezer: f, stats: s }) => {
+      virtualSpace[f.id] = s.occupiedCm;
+    });
+
+    const moves = [];
+    let planViable = true;
+
+    for (const contract of clientsToMove) {
+      // Find best target that has room in virtual space
+      const target = allFreezers
+        .filter(({ freezer: f }) => f.id !== freezer.id)
+        .map(({ freezer: f }) => ({
+          freezer: f,
+          virtualAvailable: f.capacityCm - (virtualSpace[f.id] || 0)
+        }))
+        .filter(({ virtualAvailable }) => virtualAvailable >= contract.occupiedCm)
+        .sort((a, b) => {
+          // prefer freezers already partially full (consolidation) and same temperature
+          const tempMatchA = a.freezer.temperatureType === freezer.temperatureType ? 0 : 1;
+          const tempMatchB = b.freezer.temperatureType === freezer.temperatureType ? 0 : 1;
+          const leftoverA  = a.virtualAvailable - contract.occupiedCm;
+          const leftoverB  = b.virtualAvailable - contract.occupiedCm;
+          return tempMatchA - tempMatchB || leftoverA - leftoverB;
+        })[0];
+
+      if (!target) { planViable = false; break; }
+
+      // Reserve space
+      virtualSpace[target.freezer.id] = (virtualSpace[target.freezer.id] || 0) + contract.occupiedCm;
+      moves.push({ contract, targetFreezer: target.freezer });
+    }
+
+    if (!planViable || !moves.length) continue;
+
+    const saving = getTotalFreezerCost(freezer);
+    // Only recommend if saving is meaningful (>0) and we're not just moving to equally costly freezers
+    if (saving <= 0) continue;
+
+    plans.push({
+      sourceFreezer:  freezer,
+      moves,
+      savingPerMonth: saving,
+      clientCount:    clientsToMove.length
+    });
+  }
+
+  // Sort by saving descending, deduplicate (a freezer can't appear as source twice)
+  const seen = new Set();
+  return plans
+    .sort((a, b) => b.savingPerMonth - a.savingPerMonth)
+    .filter(p => { if (seen.has(p.sourceFreezer.id)) return false; seen.add(p.sourceFreezer.id); return true; });
+}
+
+function renderRecommendations(emptyFreezers, underusedFreezers, consolidationPlans) {
+  const recs = [];
+
+  // 1) Freezers 100% ociosos — custo sem nenhuma receita
+  emptyFreezers.slice(0, 3).forEach(({ freezer }) => {
+    recs.push({
+      priority:    "high",
+      title:       `${escapeHtml(freezer.name)} está completamente vazio`,
+      description: `${escapeHtml(getRoom(freezer.roomId)?.name || "Sem sala")} — custo correndo sem nenhuma receita. Considere devolver o equipamento.`,
+      value:       formatCurrency(getTotalFreezerCost(freezer)),
+      detail:      "economia imediata/mês se devolver",
+      action:      "edit-freezer",
+      id:          freezer.id,
+      button:      "Ver freezer"
+    });
+  });
+
+  // 2) Consolidation plans — the real intelligence
+  consolidationPlans.forEach((plan) => {
+    const { sourceFreezer, moves, savingPerMonth, clientCount } = plan;
+    const moveList = moves.map(m =>
+      `${escapeHtml(m.contract.clientName)} → ${escapeHtml(m.targetFreezer.name)}`
+    ).join(", ");
+    const clientNames = moves.map(m => escapeHtml(m.contract.clientName)).join(" e ");
+    // First contract to move — button opens move modal
+    const firstContract = moves[0].contract;
+
+    recs.push({
+      priority:    "medium",
+      title:       `Esvaziar ${escapeHtml(sourceFreezer.name)} e economizar ${formatCurrency(savingPerMonth)}/mês`,
+      description: `${clientCount} cliente(s) podem ser realocados com espaço disponível em outros freezers: ${moveList}.`,
+      value:       formatCurrency(savingPerMonth),
+      detail:      "economia mensal se devolver este freezer",
+      action:      "open-move",
+      id:          firstContract.id,
+      button:      clientCount === 1 ? "Mover cliente" : "Iniciar reorganização"
+    });
+  });
+
+  // 3) Underused freezers — informational, only if no consolidation plan covers them
+  const coveredIds = new Set(consolidationPlans.map(p => p.sourceFreezer.id));
+  underusedFreezers
+    .filter(({ freezer }) => !coveredIds.has(freezer.id))
+    .slice(0, 2)
+    .forEach(({ freezer, stats }) => {
+      recs.push({
+        priority:    "low",
+        title:       `${escapeHtml(freezer.name)} está ${stats.occupancy.toFixed(0)}% ocupado`,
+        description: `Cabe mais ${stats.availableCm} cm. Pode absorver clientes de outro freezer para liberar espaço.`,
+        value:       `${stats.availableCm} cm disponíveis`,
+        detail:      `resultado atual: ${formatCurrency(stats.profit)}`,
+        action:      "edit-freezer",
+        id:          freezer.id,
+        button:      "Ver freezer"
+      });
+    });
+
+  if (!recs.length) {
     elements.opportunityList.innerHTML = `
       <div class="empty-state compact">
-        <strong>Nenhuma oportunidade clara agora</strong>
-        <p>Quando houver freezers com espaço livre relevante, eles aparecerão aqui.</p>
+        <strong>Nenhuma oportunidade de consolidação no momento</strong>
+        <p>Todos os freezers estão bem aproveitados ou não há destino viável para mover clientes.</p>
       </div>`;
     return;
   }
 
-  elements.opportunityList.innerHTML = recommendations.map((item) => `
+  elements.opportunityList.innerHTML = recs.map((item) => `
     <article class="opportunity-row ${item.priority}">
       <div class="opp-info">
         <strong>${item.title}</strong>
@@ -354,66 +496,6 @@ function renderOpportunitySummary(activeContracts, availableCm) {
               data-action="${item.action}" data-id="${item.id}">${item.button}</button>
     </article>
   `).join("");
-}
-
-function buildRecommendations({ emptyFreezers, underusedFreezers, freezersWithSpace, smallContracts }) {
-  const recs = [];
-
-  // 1) Freezers completamente vazios — maior urgência: custo puro sem receita
-  emptyFreezers.slice(0, 2).forEach(({ freezer }) => {
-    recs.push({
-      priority:    "high",
-      title:       `${freezer.name} está 100% vazio`,
-      description: `${getRoom(freezer.roomId)?.name || "Sem sala"} — custo correndo sem nenhuma receita.`,
-      value:       formatCurrency(freezer.monthlyCost),
-      detail:      "custo eliminável se devolver o equipamento",
-      action:      "edit-freezer",
-      id:          freezer.id,
-      button:      "Editar freezer"
-    });
-  });
-
-  // 2) Sugestões de mover clientes pequenos para consolidar
-  if (smallContracts.length && freezersWithSpace.length) {
-    smallContracts
-      .filter((c) => {
-        // só sugere mover se o freezer de origem ficar liberável (< 2 clientes ativos depois)
-        const origClients = getFreezerContracts(c.freezerId).filter((x) => x.status === "active" && x.id !== c.id);
-        return origClients.length === 0 || origClients.reduce((s, x) => s + x.occupiedCm, 0) <= 35;
-      })
-      .slice(0, 4)
-      .forEach((contract) => {
-        const origin  = state.data.freezers.find((f) => f.id === contract.freezerId);
-        const bestTarget = findBestMoveTarget(contract);
-        if (!bestTarget) return;
-        recs.push({
-          priority:    "medium",
-          title:       `Mover ${contract.clientName} libera ${origin?.name || "freezer atual"}`,
-          description: `Ocupa ${contract.occupiedCm} cm. Melhor destino: ${bestTarget.name} (${bestTarget.availableCm} cm livres).`,
-          value:       formatCurrency(origin?.monthlyCost || 0),
-          detail:      "custo que pode ser eliminado",
-          action:      "open-move",
-          id:          contract.id,
-          button:      "Mover agora"
-        });
-      });
-  }
-
-  // 3) Freezers subutilizados com espaço para receber clientes
-  underusedFreezers.slice(0, 2).forEach(({ freezer, stats }) => {
-    recs.push({
-      priority:    "low",
-      title:       `${freezer.name} está ${stats.occupancy.toFixed(0)}% ocupado`,
-      description: `Pode receber até ${stats.availableCm} cm de clientes de outros freezers.`,
-      value:       `${stats.availableCm} cm livres`,
-      detail:      `resultado atual: ${formatCurrency(stats.profit)}`,
-      action:      "edit-freezer",
-      id:          freezer.id,
-      button:      "Ver freezer"
-    });
-  });
-
-  return recs.slice(0, 6);
 }
 
 // Encontra o melhor freezer de destino para um contrato (estratégia de consolidação)
