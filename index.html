@@ -24,6 +24,7 @@
       <button class="tab-button"        type="button" data-page-target="clients">Clientes</button>
       <button class="tab-button"        type="button" data-page-target="setup">Cadastros</button>
       <button class="tab-button"        type="button" data-page-target="charts">Gráficos</button>
+      <button class="tab-button"        type="button" data-page-target="afericao">Aferição</button>
     </nav>
 
     <main>
@@ -328,6 +329,95 @@
       <!-- ═══ CHARTS ══════════════════════════════════════════════════════════ -->
       <section id="page-charts" class="page-view" data-page="charts">
         <div id="charts-container" class="charts-container"></div>
+      </section>
+
+
+      <!-- ═══ AFERIÇÃO ══════════════════════════════════════════════════════════ -->
+      <section id="page-afericao" class="page-view" data-page="afericao">
+
+        <div class="page-heading">
+          <div>
+            <p class="eyebrow">Controle de qualidade</p>
+            <h2>Aferição semanal de uso</h2>
+          </div>
+          <p>Confira se o uso real de cada cliente bate com o contrato. Registre desvios e perdas financeiras.</p>
+        </div>
+
+        <!-- Summary strip -->
+        <div class="af-summary-strip">
+          <div class="af-summary-card">
+            <span>Última aferição</span>
+            <strong id="af-last-date">—</strong>
+          </div>
+          <div class="af-summary-card">
+            <span>Contratos a verificar</span>
+            <strong id="af-pending">0</strong>
+          </div>
+          <div class="af-summary-card warn">
+            <span>Desvios detectados</span>
+            <strong id="af-deviations" class="af-summary-value muted">—</strong>
+          </div>
+          <div class="af-summary-card">
+            <span>Perda mensal por desconto</span>
+            <strong id="af-discount-loss">R$ 0,00</strong>
+            <small id="af-discount-count">0 cliente(s) com desconto</small>
+          </div>
+        </div>
+
+        <div class="af-split">
+
+          <!-- Left: current inspection form -->
+          <div class="af-left">
+            <div class="panel">
+              <div class="section-heading">
+                <div>
+                  <p class="eyebrow">Nova aferição</p>
+                  <h2>Verificação de uso por contrato</h2>
+                </div>
+              </div>
+              <p class="panel-note">Para cada cliente, informe quantos centímetros estão sendo usados fisicamente no freezer. O sistema identifica automaticamente desvios e o impacto financeiro.</p>
+
+              <label class="af-responsavel-label">
+                <span>Responsável pela aferição</span>
+                <input id="af-responsavel" type="text" placeholder="Seu nome">
+              </label>
+
+              <div id="af-checklist" class="af-checklist"></div>
+
+              <div class="af-save-row">
+                <button class="button primary" type="button" data-action="save-afericao">
+                  Salvar aferição
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Right: history + discount analysis -->
+          <div class="af-right">
+
+            <div class="panel" style="margin-bottom:1rem">
+              <div class="section-heading">
+                <div>
+                  <p class="eyebrow">Perdas por desconto</p>
+                  <h2>Clientes pagando abaixo do plano padrão</h2>
+                </div>
+              </div>
+              <p class="panel-note">Diferença entre o valor padrão do plano e o que o cliente efetivamente paga.</p>
+              <div id="af-discount-list" class="af-discount-list"></div>
+            </div>
+
+            <div class="panel">
+              <div class="section-heading">
+                <div>
+                  <p class="eyebrow">Histórico</p>
+                  <h2>Aferições anteriores</h2>
+                </div>
+              </div>
+              <div id="af-history" class="af-history-list"></div>
+            </div>
+
+          </div>
+        </div>
       </section>
 
     </main>

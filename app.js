@@ -1,4 +1,4 @@
-const STORAGE_KEY = "freezerSpaceManager-v2"; // bumped: new clientOwned field
+const STORAGE_KEY = "freezerSpaceManager-v3"; // bumped: aferições added
 const SHELVES_INCLUDED = 3;   // prateleiras já inclusas no aluguel base
 const EXTRA_SHELF_COST = 15;  // R$/prateleira extra acima das inclusas
 const API_URL = "/api/data";
@@ -16,7 +16,7 @@ const plans = {
 const currencyFormatter = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" });
 
 const state = {
-  data: { rooms: [], freezers: [], contracts: [] },
+  data: { rooms: [], freezers: [], contracts: [], afericoes: [] },
   filters: { roomId: "all" },
   sharedMode: false,
   sharedProvider: "local"
@@ -120,10 +120,12 @@ function registerEvents() {
     if (action === "edit-freezer")    editFreezer(id);
     if (action === "edit-contract")   editContract(id);
     if (action === "open-move")       openMoveModal(id);
+    if (action === "save-afericao")   saveAfericao();
     if (action === "move-contract")   moveContract(id, freezerId);
     if (action === "delete-room")     deleteRoom(id);
     if (action === "delete-freezer")  deleteFreezer(id);
     if (action === "delete-contract") deleteContract(id);
+    if (action === "view-afericao")   viewAfericao(id);
   });
 }
 
@@ -306,6 +308,7 @@ function renderLists() {
   renderContracts();
   renderSetupLists();
   renderChartsDashboard();
+  renderAfericaoPage();
 }
 
 function showPage(pageName) {
@@ -991,6 +994,336 @@ function bindChartsFilter() {
     renderChartsDashboard();
   });
 }
+
+// ─── AFERIÇÃO SEMANAL ─────────────────────────────────────────────────────────
+
+function renderAfericaoPage() {
+  const page = document.querySelector("#page-afericao");
+  if (!page) return;
+
+  const activeContracts = state.data.contracts.filter(c => c.status === "active");
+  const lastAfericao    = getLastAfericao();
+
+  // Summary cards
+  const discountLoss   = calcDiscountLoss(activeContracts);
+  const lastDate       = lastAfericao ? formatDate(lastAfericao.date) : "Nunca realizada";
+  const pendingCount   = activeContracts.length;
+  const deviations     = lastAfericao ? countDeviations(lastAfericao) : null;
+
+  page.querySelector("#af-last-date").textContent    = lastDate;
+  page.querySelector("#af-pending").textContent      = `${pendingCount} contrato(s)`;
+  page.querySelector("#af-discount-loss").textContent = formatCurrency(discountLoss.total);
+  page.querySelector("#af-discount-count").textContent = `${discountLoss.count} cliente(s) com desconto`;
+
+  if (deviations !== null) {
+    page.querySelector("#af-deviations").textContent = deviations.count > 0
+      ? `${deviations.count} desvio(s) — ${formatCurrency(deviations.loss)}/mês`
+      : "Nenhum desvio na última aferição";
+    page.querySelector("#af-deviations").className =
+      deviations.count > 0 ? "af-summary-value negative" : "af-summary-value positive";
+  } else {
+    page.querySelector("#af-deviations").textContent = "Realize a primeira aferição";
+    page.querySelector("#af-deviations").className   = "af-summary-value muted";
+  }
+
+  renderAfericaoForm(activeContracts);
+  renderAfericaoHistory();
+  renderDiscountList(activeContracts);
+}
+
+function renderDiscountList(activeContracts) {
+  const container = document.querySelector("#af-discount-list");
+  if (!container) return;
+
+  const discounted = activeContracts
+    .map(c => ({ c, planFee: plans[c.planKey]?.defaultFee || 0, diff: (plans[c.planKey]?.defaultFee || 0) - c.monthlyFee }))
+    .filter(({ diff }) => diff > 0)
+    .sort((a, b) => b.diff - a.diff);
+
+  if (!discounted.length) {
+    container.innerHTML = '<div class="empty-state compact"><strong>Nenhum desconto detectado</strong><p>Todos os clientes pagam o valor padrão do plano.</p></div>';
+    return;
+  }
+
+  container.innerHTML = discounted.map(({ c, planFee, diff }) => {
+    const freezer = state.data.freezers.find(f => f.id === c.freezerId);
+    const room    = freezer ? getRoom(freezer.roomId) : null;
+    return `
+      <div class="af-discount-row">
+        <div>
+          <strong>${escapeHtml(c.clientName)}</strong>
+          <span>${escapeHtml(freezer?.name||"?")}, ${escapeHtml(room?.name||"?")} · Plano ${getPlanLabel(c.planKey)}</span>
+        </div>
+        <div class="af-discount-values">
+          <span>Paga <strong>${formatCurrency(c.monthlyFee)}</strong></span>
+          <span>Padrão <strong>${formatCurrency(planFee)}</strong></span>
+          <strong class="negative">−${formatCurrency(diff)}/mês</strong>
+        </div>
+      </div>`;
+  }).join("");
+}
+
+// Calculates total financial loss from clients paying less than standard plan price
+function calcDiscountLoss(activeContracts) {
+  let total = 0, count = 0;
+  activeContracts.forEach(c => {
+    const planFee = plans[c.planKey]?.defaultFee || 0;
+    const diff    = planFee - c.monthlyFee;
+    if (diff > 0) { total += diff; count++; }
+  });
+  return { total, count };
+}
+
+function countDeviations(afericao) {
+  let count = 0, loss = 0;
+  (afericao.items || []).forEach(item => {
+    if (item.deviationType && item.deviationType !== "ok") {
+      count++;
+      loss += Math.abs(item.financialImpact || 0);
+    }
+  });
+  return { count, loss };
+}
+
+function getLastAfericao() {
+  const list = state.data.afericoes || [];
+  return list.length ? list[list.length - 1] : null;
+}
+
+function renderAfericaoForm(activeContracts) {
+  const container = document.querySelector("#af-checklist");
+  if (!container) return;
+
+  if (!activeContracts.length) {
+    container.innerHTML = `<div class="empty-state compact"><strong>Nenhum contrato ativo</strong><p>Cadastre clientes para iniciar a aferição.</p></div>`;
+    return;
+  }
+
+  // Group by freezer for easier physical inspection
+  const byFreezer = {};
+  activeContracts.forEach(c => {
+    if (!byFreezer[c.freezerId]) byFreezer[c.freezerId] = [];
+    byFreezer[c.freezerId].push(c);
+  });
+
+  container.innerHTML = Object.entries(byFreezer).map(([freezerId, contracts]) => {
+    const freezer = state.data.freezers.find(f => f.id === freezerId);
+    const room    = freezer ? getRoom(freezer.roomId) : null;
+    return `
+      <div class="af-freezer-group">
+        <div class="af-freezer-header">
+          <strong>${escapeHtml(freezer?.name || "Freezer removido")}</strong>
+          <span>${escapeHtml(room?.name || "Sem sala")} · ${freezer?.capacityCm || 0} cm total</span>
+        </div>
+        ${contracts.map(c => renderAfericaoItem(c)).join("")}
+      </div>`;
+  }).join("");
+}
+
+function renderAfericaoItem(contract) {
+  const planFee    = plans[contract.planKey]?.defaultFee || 0;
+  const planCm     = plans[contract.planKey]?.defaultCm  || contract.occupiedCm;
+  const discount   = planFee - contract.monthlyFee;
+  const freezer    = state.data.freezers.find(f => f.id === contract.freezerId);
+
+  return `
+    <div class="af-item" data-contract-id="${contract.id}">
+      <div class="af-item-info">
+        <div class="af-client-name">
+          <strong>${escapeHtml(contract.clientName)}</strong>
+          ${discount > 0 ? `<span class="af-discount-tag">Desconto ${formatCurrency(discount)}/mês</span>` : ""}
+        </div>
+        <div class="af-item-meta">
+          <span>Plano: <strong>${getPlanLabel(contract.planKey)}</strong></span>
+          <span>Contrato: <strong>${contract.occupiedCm} cm</strong></span>
+          <span>Mensalidade: <strong>${formatCurrency(contract.monthlyFee)}</strong></span>
+          <span>Plano padrão: <strong>${formatCurrency(planFee)}</strong></span>
+        </div>
+      </div>
+
+      <div class="af-item-check">
+        <label class="af-cm-label">
+          <span>Uso real verificado (cm)</span>
+          <input class="af-cm-input" type="number" min="0" max="${freezer?.capacityCm || 999}"
+                 step="5" value="${contract.occupiedCm}"
+                 data-contract-id="${contract.id}"
+                 data-plan-cm="${planCm}"
+                 data-contracted-cm="${contract.occupiedCm}"
+                 data-monthly-fee="${contract.monthlyFee}"
+                 placeholder="${contract.occupiedCm}">
+        </label>
+        <div class="af-deviation-preview" id="af-preview-${contract.id}">
+          ${renderDeviationPreview(contract.occupiedCm, planCm, contract.occupiedCm, contract.monthlyFee)}
+        </div>
+      </div>
+    </div>`;
+}
+
+function renderDeviationPreview(realCm, planCm, contractedCm, monthlyFee) {
+  if (realCm == null || realCm === "") return `<span class="muted">Informe o uso real</span>`;
+
+  const real = Number(realCm);
+
+  // Deviation from CONTRACTED amount (what client is paying for)
+  const diffFromContract = real - contractedCm;
+
+  if (Math.abs(diffFromContract) <= 5) {
+    return `<span class="af-status ok">✓ Dentro do contrato (${contractedCm} cm)</span>`;
+  }
+
+  if (diffFromContract > 5) {
+    // Using MORE than contracted — we're losing money
+    // Find which plan this real usage would belong to
+    const realPlan = getPlanForCm(real);
+    const realPlanFee = realPlan ? plans[realPlan].defaultFee : monthlyFee;
+    const loss = realPlanFee - monthlyFee;
+    return `
+      <span class="af-status warn">⚠ Uso acima do contrato (+${diffFromContract} cm)</span>
+      <span class="af-status-detail">Usa espaço de plano <strong>${realPlan ? plans[realPlan].label : "maior"}</strong> — 
+        perdendo <strong class="negative">${formatCurrency(loss)}/mês</strong> neste cliente</span>`;
+  }
+
+  // Using LESS than contracted
+  const savedCm = contractedCm - real;
+  return `
+    <span class="af-status info">ℹ Uso abaixo do contrato (−${savedCm} cm livres)</span>
+    <span class="af-status-detail">Espaço subutilizado — pode ser oferecido a outro cliente</span>`;
+}
+
+function getPlanForCm(cm) {
+  if (cm <= 35)  return "quarter";
+  if (cm <= 70)  return "half";
+  if (cm <= 105) return "threeQuarter";
+  return "full";
+}
+
+function renderAfericaoHistory() {
+  const container = document.querySelector("#af-history");
+  if (!container) return;
+
+  const list = [...(state.data.afericoes || [])].reverse();
+  if (!list.length) {
+    container.innerHTML = `<div class="empty-state compact"><strong>Nenhuma aferição registrada</strong><p>Salve a primeira aferição para começar o histórico.</p></div>`;
+    return;
+  }
+
+  container.innerHTML = list.slice(0, 10).map(af => {
+    const devs   = countDeviations(af);
+    const disc   = af.discountLoss || 0;
+    const total  = af.items?.length || 0;
+    return `
+      <article class="af-history-row">
+        <div class="af-history-meta">
+          <strong>${formatDate(af.date)}</strong>
+          <span>${af.responsavel || "—"} · ${total} contrato(s)</span>
+        </div>
+        <div class="${devs.count > 0 ? "negative" : "positive"}">
+          <strong>${devs.count > 0 ? `${devs.count} desvio(s)` : "Sem desvios"}</strong>
+          ${devs.count > 0 ? `<span>${formatCurrency(devs.loss)}/mês em uso acima</span>` : ""}
+        </div>
+        <div class="${disc > 0 ? "warn-text" : ""}">
+          <strong>${formatCurrency(disc)}</strong>
+          <span>perda por desconto</span>
+        </div>
+        <button class="button secondary btn-sm" type="button"
+                data-action="view-afericao" data-id="${af.id}">Ver detalhes</button>
+      </article>`;
+  }).join("");
+}
+
+async function saveAfericao() {
+  const responsavel = document.querySelector("#af-responsavel")?.value?.trim() || "";
+  const inputs      = document.querySelectorAll(".af-cm-input");
+
+  const items = [];
+  inputs.forEach(input => {
+    const contractId    = input.dataset.contractId;
+    const realCm        = Number(input.value);
+    const contractedCm  = Number(input.dataset.contractedCm);
+    const planCm        = Number(input.dataset.planCm);
+    const monthlyFee    = Number(input.dataset.monthlyFee);
+    const contract      = state.data.contracts.find(c => c.id === contractId);
+    if (!contract) return;
+
+    const diff = realCm - contractedCm;
+    let deviationType = "ok", financialImpact = 0;
+
+    if (diff > 5) {
+      deviationType = "above";
+      const realPlan    = getPlanForCm(realCm);
+      const realPlanFee = realPlan ? plans[realPlan].defaultFee : monthlyFee;
+      financialImpact   = realPlanFee - monthlyFee;
+    } else if (diff < -5) {
+      deviationType   = "below";
+      financialImpact = 0;
+    }
+
+    items.push({
+      contractId,
+      clientName:    contract.clientName,
+      freezerId:     contract.freezerId,
+      planKey:       contract.planKey,
+      contractedCm,
+      realCm,
+      monthlyFee,
+      deviationType,
+      financialImpact
+    });
+  });
+
+  const discountLoss = calcDiscountLoss(
+    state.data.contracts.filter(c => c.status === "active")
+  );
+
+  const afericao = {
+    id:          createId(),
+    date:        new Date().toISOString().slice(0, 10),
+    responsavel,
+    items,
+    discountLoss: discountLoss.total
+  };
+
+  state.data.afericoes = [...(state.data.afericoes || []), afericao];
+  await persistData();
+
+  document.querySelector("#af-responsavel").value = "";
+  renderAfericaoPage();
+  window.alert(`✅ Aferição de ${formatDate(afericao.date)} salva com ${items.length} registro(s).`);
+}
+
+function viewAfericao(id) {
+  const af = state.data.afericoes?.find(a => a.id === id);
+  if (!af) return;
+
+  const devs = countDeviations(af);
+  const lines = (af.items || []).map(item => {
+    const freezer = state.data.freezers.find(f => f.id === item.freezerId);
+    const room    = freezer ? getRoom(freezer.roomId) : null;
+    const icon    = item.deviationType === "above" ? "⚠" : item.deviationType === "below" ? "ℹ" : "✓";
+    const impact  = item.financialImpact > 0 ? ` — perdendo ${formatCurrency(item.financialImpact)}/mês` : "";
+    return `${icon} ${item.clientName} | ${escapeHtml(freezer?.name||"?")} ${escapeHtml(room?.name||"")} | Contrato: ${item.contractedCm}cm | Real: ${item.realCm}cm${impact}`;
+  }).join("\n");
+
+  window.alert(
+    `Aferição de ${formatDate(af.date)}\nResponsável: ${af.responsavel || "—"}\n\n${lines}\n\nDesvios: ${devs.count} | Perda por desvio: ${formatCurrency(devs.loss)}/mês | Perda por desconto: ${formatCurrency(af.discountLoss || 0)}/mês`
+  );
+}
+
+// Live preview as user types real cm
+document.addEventListener("input", (event) => {
+  const input = event.target.closest(".af-cm-input");
+  if (!input) return;
+  const contractId   = input.dataset.contractId;
+  const preview      = document.querySelector(`#af-preview-${contractId}`);
+  if (!preview) return;
+  preview.innerHTML  = renderDeviationPreview(
+    input.value,
+    Number(input.dataset.planCm),
+    Number(input.dataset.contractedCm),
+    Number(input.dataset.monthlyFee)
+  );
+});
+
 // ─── DRAG & DROP ─────────────────────────────────────────────────────────────
 
 function handleDragStart(event) {
@@ -1237,7 +1570,8 @@ function sanitizeData(data) {
   return {
     rooms:     Array.isArray(data.rooms)     ? data.rooms     : [],
     freezers:  Array.isArray(data.freezers)  ? data.freezers.map(f => ({ ...f, clientOwned: !!f.clientOwned, orionOwned: !!f.orionOwned }))  : [],
-    contracts: Array.isArray(data.contracts) ? data.contracts : []
+    contracts: Array.isArray(data.contracts) ? data.contracts : [],
+    afericoes: Array.isArray(data.afericoes) ? data.afericoes : []
   };
 }
 
