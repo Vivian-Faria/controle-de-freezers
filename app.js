@@ -835,22 +835,28 @@ async function moveContract(contractId, targetFreezerId) {
 
 // ─── CHARTS DASHBOARD ────────────────────────────────────────────────────────
 
+// Persiste filtro de sala dos gráficos entre renders
+let chartsRoomFilter = "all";
+
 function renderChartsDashboard() {
   const chartPage = document.querySelector("#page-charts");
   if (!chartPage) return;
 
-  const freezers = state.data.freezers;
-  if (!freezers.length) {
-    chartPage.querySelector("#charts-container").innerHTML =
-      `<div class="empty-state"><strong>Nenhum freezer cadastrado</strong><p>Cadastre freezers para ver os gráficos.</p></div>`;
+  const container = chartPage.querySelector("#charts-container");
+
+  if (!state.data.freezers.length) {
+    container.innerHTML = `<div class="empty-state"><strong>Nenhum freezer cadastrado</strong><p>Cadastre freezers para ver os gráficos.</p></div>`;
     return;
   }
 
-  const data = freezers.map(f => {
+  // Build full dataset
+  const allData = state.data.freezers.map(f => {
     const stats = getFreezerStats(f);
     const room  = getRoom(f.roomId);
     return {
+      id:           f.id,
       name:         f.name,
+      roomId:       f.roomId,
       roomName:     room?.name || "Sem sala",
       revenue:      stats.revenue,
       cost:         getTotalFreezerCost(f),
@@ -860,113 +866,129 @@ function renderChartsDashboard() {
       occupiedCm:   stats.occupiedCm,
       availableCm:  stats.availableCm,
       revenuePerCm: stats.occupiedCm > 0 ? stats.revenue / stats.occupiedCm : 0,
-      costPerCm:    stats.occupiedCm > 0 ? getTotalFreezerCost(f) / stats.occupiedCm : 0,
       clientCount:  stats.clientCount,
       clientOwned:  f.clientOwned,
       orionOwned:   f.orionOwned,
     };
-  }).sort((a, b) => b.revenue - a.revenue);
+  });
 
-  const colors = {
-    revenue:  "#3b82f6",
-    cost:     "#ef4444",
-    profit:   "#22c55e",
-    margin:   "#f59e0b",
-    occupancy:"#06b6d4",
-    rpc:      "#a78bfa",
-  };
+  // Room filter header (render once, persist selection)
+  const roomOptions = [{ id: "all", name: "Todas as salas" }, ...state.data.rooms]
+    .map(r => `<option value="${r.id}" ${chartsRoomFilter === r.id ? "selected" : ""}>${escapeHtml(r.name)}</option>`)
+    .join("");
 
-  const maxRevenue    = Math.max(...data.map(d => d.revenue), 1);
-  const maxProfit     = Math.max(...data.map(d => Math.abs(d.profit)), 1);
-  const maxRpc        = Math.max(...data.map(d => d.revenuePerCm), 1);
-  const maxOcc        = 100;
+  const filterBar = `
+    <div class="charts-filter-bar">
+      <div class="charts-filter-left">
+        <p class="eyebrow">Gráficos</p>
+        <h2>Desempenho por freezer</h2>
+      </div>
+      <label class="inline-filter">
+        <span>Filtrar sala</span>
+        <select id="charts-room-filter">${roomOptions}</select>
+      </label>
+    </div>`;
 
+  // Apply filter
+  const data = chartsRoomFilter === "all"
+    ? allData
+    : allData.filter(d => d.roomId === chartsRoomFilter);
+
+  if (!data.length) {
+    container.innerHTML = filterBar + `<div class="empty-state"><strong>Nenhum freezer nesta sala</strong><p>Selecione outra sala ou "Todas as salas".</p></div>`;
+    bindChartsFilter();
+    return;
+  }
+
+  // KPIs
+  const totalRevenue = data.reduce((s,d) => s+d.revenue, 0);
+  const totalCost    = data.reduce((s,d) => s+d.cost, 0);
+  const totalProfit  = totalRevenue - totalCost;
+  const avgOccupancy = data.reduce((s,d) => s+d.occupancy, 0) / data.length;
+  const byRevenue    = [...data].sort((a,b) => b.revenue - a.revenue);
+  const byProfit     = [...data].sort((a,b) => b.profit - a.profit);
+  const topFreezer   = byRevenue[0];
+  const worstFreezer = byProfit[byProfit.length - 1];
+
+  const kpiHtml = `
+    <div class="chart-kpis">
+      <div class="chart-kpi"><span>Faturamento</span><strong>${formatCurrency(totalRevenue)}</strong><small>${data.length} freezer(s)</small></div>
+      <div class="chart-kpi"><span>Custo total</span><strong class="negative">${formatCurrency(totalCost)}</strong><small>aluguel + extras</small></div>
+      <div class="chart-kpi ${totalProfit<0?"kpi-warn":""}"><span>Resultado</span><strong class="${totalProfit>=0?"positive":"negative"}">${formatCurrency(totalProfit)}</strong><small>margem ${totalRevenue>0?((totalProfit/totalRevenue)*100).toFixed(1):0}%</small></div>
+      <div class="chart-kpi"><span>Ocupação média</span><strong style="color:var(--accent-2)">${avgOccupancy.toFixed(1)}%</strong><small>do espaço total</small></div>
+      <div class="chart-kpi"><span>Maior faturamento</span><strong>${topFreezer?escapeHtml(topFreezer.name):"—"}</strong><small>${topFreezer?formatCurrency(topFreezer.revenue):""}</small></div>
+      <div class="chart-kpi ${worstFreezer?.profit<0?"kpi-warn":""}"><span>Pior resultado</span><strong class="${worstFreezer?.profit<0?"negative":""}">${worstFreezer?escapeHtml(worstFreezer.name):"—"}</strong><small>${worstFreezer?formatCurrency(worstFreezer.profit):""}</small></div>
+    </div>`;
+
+  // Chart helpers
   function ownerTag(d) {
-    if (d.clientOwned) return `<span class="owned-badge">Do cliente</span>`;
-    if (d.orionOwned)  return `<span class="owned-badge" style="background:rgba(99,102,241,.15);color:#818cf8;border-color:rgba(99,102,241,.3)">Órion</span>`;
+    if (d.clientOwned) return `<span class="owned-badge" style="font-size:.6rem">Cliente</span>`;
+    if (d.orionOwned)  return `<span class="owned-badge" style="font-size:.6rem;background:rgba(99,102,241,.15);color:#818cf8;border-color:rgba(99,102,241,.3)">Órion</span>`;
     return "";
   }
 
-  function bar(value, max, color, label) {
-    const pct = max > 0 ? Math.min(100, (value / max) * 100) : 0;
-    return `<div class="chart-bar-wrap" title="${label}">
-      <div class="chart-bar" style="width:${pct}%;background:${color}"></div>
-      <span class="chart-bar-label">${label}</span>
-    </div>`;
+  // A bar where the label is INSIDE or to the right but constrained
+  function bar(pct, color, label, isNegative) {
+    const clampedPct = Math.min(100, Math.max(0, pct));
+    const barColor   = isNegative ? "#ef4444" : color;
+    return `
+      <div class="cbar-track">
+        <div class="cbar-fill" style="width:${clampedPct}%;background:${barColor}"></div>
+        <span class="cbar-value">${label}</span>
+      </div>`;
   }
 
-  // Sort variants
-  const byRevenue   = [...data].sort((a,b) => b.revenue - a.revenue);
-  const byProfit    = [...data].sort((a,b) => b.profit - a.profit);
-  const byMargin    = [...data].sort((a,b) => b.margin - a.margin);
-  const byRpc       = [...data].sort((a,b) => b.revenuePerCm - a.revenuePerCm);
-  const byOccupancy = [...data].sort((a,b) => b.occupancy - a.occupancy);
-
-  function chartBlock(title, eyebrow, sorted, valueFn, labelFn, color, maxVal) {
+  function chartSection(title, eyebrow, sorted, valueFn, labelFn, color, maxVal) {
     return `
       <article class="chart-card">
-        <p class="eyebrow">${eyebrow}</p>
-        <h3>${title}</h3>
+        <header class="chart-card-header">
+          <p class="eyebrow">${eyebrow}</p>
+          <h3>${title}</h3>
+        </header>
         <div class="chart-rows">
-          ${sorted.map(d => `
-            <div class="chart-row">
-              <div class="chart-row-name">
-                <strong>${escapeHtml(d.name)}</strong>
-                <span>${escapeHtml(d.roomName)} ${ownerTag(d)}</span>
-              </div>
-              ${bar(Math.abs(valueFn(d)), maxVal, valueFn(d) < 0 ? "#ef4444" : color, labelFn(d))}
-            </div>
-          `).join("")}
+          ${sorted.map(d => {
+            const val = valueFn(d);
+            const pct = maxVal > 0 ? (Math.abs(val) / maxVal) * 100 : 0;
+            return `
+              <div class="chart-row">
+                <div class="chart-row-name">
+                  <strong title="${escapeHtml(d.name)}">${escapeHtml(d.name)}</strong>
+                  <div class="chart-row-sub">${escapeHtml(d.roomName)} ${ownerTag(d)}</div>
+                </div>
+                ${bar(pct, color, labelFn(d), val < 0)}
+              </div>`;
+          }).join("")}
         </div>
       </article>`;
   }
 
-  // Summary KPIs
-  const totalRevenue = data.reduce((s,d) => s+d.revenue, 0);
-  const totalCost    = data.reduce((s,d) => s+d.cost, 0);
-  const totalProfit  = totalRevenue - totalCost;
-  const avgOccupancy = data.length ? data.reduce((s,d) => s+d.occupancy, 0) / data.length : 0;
-  const topFreezer   = byRevenue[0];
-  const worstFreezer = [...data].sort((a,b) => a.profit - b.profit)[0];
+  const maxRevVal  = Math.max(...data.map(d => d.revenue), 1);
+  const maxProfVal = Math.max(...data.map(d => Math.abs(d.profit)), 1);
+  const maxRpcVal  = Math.max(...data.map(d => d.revenuePerCm), 1);
 
-  const kpiHtml = `
-    <div class="chart-kpis">
-      <div class="chart-kpi">
-        <span>Faturamento total</span>
-        <strong>${formatCurrency(totalRevenue)}</strong>
-      </div>
-      <div class="chart-kpi">
-        <span>Custo total</span>
-        <strong style="color:var(--bad)">${formatCurrency(totalCost)}</strong>
-      </div>
-      <div class="chart-kpi">
-        <span>Resultado</span>
-        <strong class="${totalProfit>=0?"positive":"negative"}">${formatCurrency(totalProfit)}</strong>
-      </div>
-      <div class="chart-kpi">
-        <span>Ocupação média</span>
-        <strong style="color:var(--accent-2)">${avgOccupancy.toFixed(1)}%</strong>
-      </div>
-      <div class="chart-kpi">
-        <span>Maior faturamento</span>
-        <strong>${topFreezer ? escapeHtml(topFreezer.name) : "—"}</strong>
-        <small>${topFreezer ? formatCurrency(topFreezer.revenue) : ""}</small>
-      </div>
-      <div class="chart-kpi ${worstFreezer?.profit < 0 ? "kpi-warn" : ""}">
-        <span>Pior resultado</span>
-        <strong>${worstFreezer ? escapeHtml(worstFreezer.name) : "—"}</strong>
-        <small class="${worstFreezer?.profit<0?"negative":""}">${worstFreezer ? formatCurrency(worstFreezer.profit) : ""}</small>
-      </div>
-    </div>`;
+  const byMargin    = [...data].sort((a,b) => b.margin - a.margin);
+  const byRpc       = [...data].sort((a,b) => b.revenuePerCm - a.revenuePerCm);
+  const byOccupancy = [...data].sort((a,b) => b.occupancy - a.occupancy);
 
-  chartPage.querySelector("#charts-container").innerHTML = kpiHtml +
-    `<div class="charts-grid">` +
-    chartBlock("Faturamento por freezer", "Receita",   byRevenue,   d=>d.revenue,      d=>formatCurrency(d.revenue),          colors.revenue,  maxRevenue) +
-    chartBlock("Resultado por freezer",   "Lucro/Prej",byProfit,    d=>d.profit,       d=>formatCurrency(d.profit),           colors.profit,   maxProfit) +
-    chartBlock("Margem por freezer",      "Margem %",  byMargin,    d=>d.margin,       d=>`${d.margin.toFixed(1)}%`,          colors.margin,   100) +
-    chartBlock("Receita por cm ocupado",  "Eficiência",byRpc,       d=>d.revenuePerCm, d=>formatCurrency(d.revenuePerCm)+"/cm", colors.rpc,    maxRpc) +
-    chartBlock("Ocupação",                "Uso do espaço",byOccupancy,d=>d.occupancy,  d=>`${d.occupancy.toFixed(1)}%`,       colors.occupancy,maxOcc) +
+  container.innerHTML = filterBar + kpiHtml + `<div class="charts-grid">` +
+    chartSection("Faturamento", "Receita mensal",    byRevenue,   d=>d.revenue,      d=>formatCurrency(d.revenue),          "#3b82f6", maxRevVal) +
+    chartSection("Resultado",   "Lucro / Prejuízo",  byProfit,    d=>d.profit,       d=>formatCurrency(d.profit),           "#22c55e", maxProfVal) +
+    chartSection("Margem",      "% sobre receita",   byMargin,    d=>d.margin,       d=>`${d.margin.toFixed(1)}%`,          "#f59e0b", 100) +
+    chartSection("Receita/cm",  "Eficiência de uso", byRpc,       d=>d.revenuePerCm, d=>formatCurrency(d.revenuePerCm),    "#a78bfa", maxRpcVal) +
+    chartSection("Ocupação",    "Uso do espaço",     byOccupancy, d=>d.occupancy,    d=>`${d.occupancy.toFixed(1)}%`,      "#06b6d4", 100) +
     `</div>`;
+
+  bindChartsFilter();
+}
+
+function bindChartsFilter() {
+  const sel = document.querySelector("#charts-room-filter");
+  if (!sel || sel.dataset.bound) return;
+  sel.dataset.bound = "1";
+  sel.addEventListener("change", () => {
+    chartsRoomFilter = sel.value;
+    renderChartsDashboard();
+  });
 }
 // ─── DRAG & DROP ─────────────────────────────────────────────────────────────
 
