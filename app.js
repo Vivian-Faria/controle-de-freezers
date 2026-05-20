@@ -22,6 +22,7 @@ const state = {
 
 let firebaseStore = null;
 let unsubscribeFirebase = null;
+let isReady = false; // evita salvar antes dos dados carregarem
 
 const elements = {
   tabButtons:           document.querySelectorAll("[data-page-target]"),
@@ -60,6 +61,7 @@ initialize();
 
 async function initialize() {
   state.data = await loadData();
+  isReady = true;
   registerEvents();
   setDefaultContractDate();
   render();
@@ -185,17 +187,9 @@ async function handleContractSubmit(event) {
 // ─── RENDER ─────────────────────────────────────────────────────────────────
 
 function render() {
-  ensureStarterState();
   populateSelects();
   renderMetrics();
   renderLists();
-}
-
-function ensureStarterState() {
-  if (!state.data.rooms.length) {
-    state.data.rooms.push({ id: createId(), name: "Sala principal", notes: "Cadastro inicial" });
-    persistData();
-  }
 }
 
 function populateSelects() {
@@ -822,6 +816,7 @@ async function deleteContract(id) {
 // ─── DATA PERSISTENCE ────────────────────────────────────────────────────────
 
 async function persistData() {
+  if (!isReady) return; // ainda inicializando, não salva
   localStorage.setItem(STORAGE_KEY, JSON.stringify(state.data));
   if (state.sharedMode) {
     try {
