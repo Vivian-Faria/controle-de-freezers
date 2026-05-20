@@ -126,6 +126,8 @@ async function handleRoomSubmit(event) {
   upsert(state.data.rooms, room);
   await persistData();
   form.reset();
+  form.elements.namedItem("id").value = "";
+  form.querySelector("button[type=submit]").textContent = "Salvar sala";
   render();
 }
 
@@ -145,8 +147,10 @@ async function handleFreezerSubmit(event) {
   upsert(state.data.freezers, freezer);
   await persistData();
   form.reset();
+  form.elements.namedItem("id").value         = "";
   form.elements.namedItem("capacityCm").value = 140;
   form.elements.namedItem("shelves").value    = 6;
+  form.querySelector("button[type=submit]").textContent = "Salvar freezer";
   render();
 }
 
@@ -180,6 +184,8 @@ async function handleContractSubmit(event) {
   upsert(state.data.contracts, contract);
   await persistData();
   form.reset();
+  form.elements.namedItem("id").value = "";
+  form.querySelector("button[type=submit]").textContent = "Salvar cliente";
   setDefaultContractDate();
   render();
 }
@@ -765,6 +771,7 @@ function editRoom(id) {
   if (!room) return;
   showPage("setup");
   setFormValues(elements.roomForm, room);
+  elements.roomForm.querySelector("button[type=submit]").textContent = "Atualizar sala";
   elements.roomForm.scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
@@ -773,6 +780,7 @@ function editFreezer(id) {
   if (!freezer) return;
   showPage("setup");
   setFormValues(elements.freezerForm, freezer);
+  elements.freezerForm.querySelector("button[type=submit]").textContent = "Atualizar freezer";
   elements.freezerForm.scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
@@ -781,6 +789,7 @@ function editContract(id) {
   if (!contract) return;
   showPage("clients");
   setFormValues(elements.contractForm, contract);
+  elements.contractForm.querySelector("button[type=submit]").textContent = "Atualizar cliente";
   elements.contractForm.scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
