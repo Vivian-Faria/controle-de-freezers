@@ -1,7 +1,18 @@
 [build]
-  publish = "."
+  publish   = "."
+  functions = "netlify/functions"
 
+# Rota amigável: /api/espacos → netlify/functions/espacos.js
 [[redirects]]
-  from = "/*"
-  to = "/index.html"
+  from   = "/api/espacos"
+  to     = "/.netlify/functions/espacos"
   status = 200
+
+# Rota raiz do app (SPA fallback)
+[[redirects]]
+  from   = "/*"
+  to     = "/index.html"
+  status = 200
+
+[functions]
+  node_bundler = "esbuild"

@@ -1,12 +1,9 @@
 {
-  "name": "gestao-freezers",
+  "name": "controle-freezers",
   "version": "1.0.0",
   "private": true,
-  "description": "Sistema de gestao de espacos de freezers com dados compartilhados.",
-  "scripts": {
-    "start": "node server.js"
-  },
-  "engines": {
-    "node": ">=18"
+  "description": "Gestão de espaços de freezers com API de integração",
+  "dependencies": {
+    "firebase": "^10.12.0"
   }
 }
