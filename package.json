@@ -1,9 +1,5 @@
 {
   "name": "controle-freezers",
   "version": "1.0.0",
-  "private": true,
-  "description": "Gestão de espaços de freezers com API de integração",
-  "dependencies": {
-    "firebase": "^10.12.0"
-  }
+  "private": true
 }
