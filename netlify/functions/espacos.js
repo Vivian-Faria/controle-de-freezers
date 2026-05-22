@@ -81,3 +81,4 @@ exports.handler = async function (event) {
 
   const projectId = process.env.FIREBASE_PROJECT_ID;
   const apiKey    = process.env.FIR
+};
